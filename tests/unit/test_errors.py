@@ -49,8 +49,8 @@ def test_backend_error_mapping(cls, expected_status, expected_code):
 
 
 def test_unknown_backend_error_is_loud_500():
-    # A BackendError subtype we don't map must surface as 500, not be swallowed.
-    resp = _raise_app(_backend(anki_errors.NetworkError)).get("/boom")
+    # An unmapped BackendError must surface as 500, not be swallowed.
+    resp = _raise_app(_backend(anki_errors.BackendIOError)).get("/boom")
     assert resp.status_code == 500
     assert resp.json()["error"] == "backend_error"
 

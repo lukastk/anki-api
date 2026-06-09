@@ -34,6 +34,10 @@ class CollectionHandle:
         self._col: Collection | None = Collection(settings.collection_path)
         if settings.enable_v3_scheduler and not self._col.v3_scheduler():
             self._col.set_v3_scheduler(True)
+        # Sync state: the auth obtained from /sync/login and the server media USN
+        # from the last incremental sync (needed for a full download).
+        self.sync_auth = None
+        self.server_media_usn: int = 0
 
     @contextmanager
     def locked(self) -> Iterator[Collection]:

@@ -31,6 +31,8 @@ _MAPPING: list[tuple[type[Exception], int, str]] = [
     (anki_errors.SearchError, 400, "invalid_search"),
     (anki_errors.UndoEmpty, 409, "undo_empty"),
     (anki_errors.CustomStudyError, 409, "custom_study_error"),
+    (anki_errors.SyncError, 502, "sync_error"),
+    (anki_errors.NetworkError, 502, "network_error"),
     (anki_errors.DBError, 409, "collection_busy"),
 ]
 

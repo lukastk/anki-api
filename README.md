@@ -20,12 +20,22 @@ set-deck/restore), review (v3 scheduler, answer, set-due-date), search & browse
 (configurable columns, find/replace, find-duplicates), tags, statistics, config
 & preferences, media, import/export (apkg + CSV), FSRS controls, filtered decks
 & custom study, undo/redo, collection maintenance (check db / optimize / empty
-cards), type-in-the-answer, TTS, and UI-chrome helpers (timespan formatting,
-markdown, help links).
+cards), **sync** (AnkiWeb or self-hosted), type-in-the-answer, TTS, and UI-chrome
+helpers (timespan formatting, markdown, help links).
 
-Not implemented (niche): Image Occlusion note authoring, and sync (proven
-reachable in experiment 04; an opt-in module — the server is a single-collection
-backend by design).
+### Sync
+
+The server is a sync **client**, like the desktop app or AnkiDroid. `POST
+/sync/login` (omit `endpoint` for AnkiWeb, or pass a self-hosted URL), then
+`POST /sync` for an incremental sync. A first sync or schema change reports
+`required: full_upload|full_download|full_sync`; the client then calls
+`POST /sync/full-upload` or `/sync/full-download` explicitly (these overwrite one
+side, so the direction is a deliberate choice). Full sync briefly closes and
+reopens the collection under the writer lock. The collection this server owns and
+the AnkiWeb/self-hosted account converge through normal sync — so your phone and
+desktop stay in step with changes made via the API.
+
+Not implemented (niche): Image Occlusion note authoring.
 
 ## Architecture (from the experiments)
 
