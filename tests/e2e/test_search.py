@@ -11,14 +11,30 @@ def test_search_cards_and_notes(api):
     assert notes["note_ids"] == [a["id"]]
 
 
-def test_browser_rows_summary_strips_styling(api):
+def test_browser_rows_render_active_columns(api):
     api.make_note(deck="S", front="What is 2+2?", back="4")
     ids = api.post("/search/cards", json={"query": "deck:S"}).json()["card_ids"]
     rows = api.post("/browser/rows", json={"card_ids": ids}).json()
-    assert rows[0]["deck"] == "S"
-    # the rendered question must not leak the template <style> CSS
-    assert "font-family" not in rows[0]["question"]
-    assert rows[0]["question"] == "What is 2+2?"
+    row = rows[0]
+    assert row["card_id"] == ids[0]
+    # cells are rendered text (no HTML/CSS leakage) aligned to active columns
+    assert "What is 2+2?" in row["cells"]
+    assert "S" in row["cells"]  # the deck column
+    assert not any("font-family" in c for c in row["cells"])
+
+
+def test_browser_columns_and_active_columns(api):
+    columns = api.get("/browser/columns").json()
+    keys = {c["key"] for c in columns}
+    assert {"noteFld", "deck", "cardDue"} <= keys
+
+    active = api.get("/browser/active-columns").json()
+    assert active["mode"] == "cards"
+    assert isinstance(active["columns"], list) and active["columns"]
+
+    # set a custom column set and read it back
+    api.put("/browser/active-columns", json={"columns": ["noteFld", "deck", "tags"]})
+    assert api.get("/browser/active-columns").json()["columns"] == ["noteFld", "deck", "tags"]
 
 
 def test_find_replace(api):
