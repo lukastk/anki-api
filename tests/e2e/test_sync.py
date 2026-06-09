@@ -4,12 +4,20 @@ AnkiWeb uses the identical client path (endpoint=null); it just can't be tested
 here without real credentials.
 """
 
+import os
 import socket
+import stat
 import subprocess
 import sys
 import time
 
 import pytest
+from fastapi.testclient import TestClient
+
+from anki_api.app import create_app
+from anki_api.collection_handle import CollectionHandle
+from anki_api.config import Settings
+from anki_api.routers import sync as sync_router
 
 HOST, PORT = "127.0.0.1", 28117
 ENDPOINT = f"http://{HOST}:{PORT}/"
@@ -79,3 +87,62 @@ def test_login_bad_credentials(api, sync_server):
     resp = api.post("/sync/login", json={"username": USER, "password": "wrong", "endpoint": sync_server})
     assert resp.status_code == 502
     assert resp.json()["error"] in ("sync_error", "network_error")
+
+
+# --- persistence + auto-login + autosync ---
+
+def test_sync_auth_persists_across_restart(settings, sync_server):
+    app1 = create_app(settings)
+    with TestClient(app1) as c1:
+        assert c1.post("/v1/sync/login", json={
+            "username": USER, "password": PASS, "endpoint": sync_server}).status_code == 200
+    assert os.path.exists(settings.resolved_sync_auth_path)
+
+    # a fresh process (same settings) loads the token from disk — no re-login
+    app2 = create_app(settings)
+    with TestClient(app2) as c2:
+        assert c2.get("/v1/sync/status").status_code == 200
+
+
+def test_logout_clears_persisted_auth(settings, sync_server):
+    app = create_app(settings)
+    with TestClient(app) as c:
+        c.post("/v1/sync/login", json={"username": USER, "password": PASS, "endpoint": sync_server})
+        assert os.path.exists(settings.resolved_sync_auth_path)
+        c.post("/v1/sync/logout")
+        assert not os.path.exists(settings.resolved_sync_auth_path)
+        assert c.get("/v1/sync/status").status_code == 401
+
+
+def test_auth_file_is_0600(settings, sync_server):
+    app = create_app(settings)
+    with TestClient(app) as c:
+        c.post("/v1/sync/login", json={"username": USER, "password": PASS, "endpoint": sync_server})
+    mode = stat.S_IMODE(os.stat(settings.resolved_sync_auth_path).st_mode)
+    assert mode == 0o600
+
+
+def _creds_settings(tmp_path, endpoint) -> Settings:
+    return Settings(
+        collection_path=str(tmp_path / "collection.anki2"),
+        sync_username=USER, sync_password=PASS, sync_endpoint=endpoint,
+    )
+
+
+def test_auto_login_from_credentials_on_startup(tmp_path, sync_server):
+    """With creds configured and no persisted token, the server logs in on boot."""
+    app = create_app(_creds_settings(tmp_path, sync_server))
+    with TestClient(app) as c:
+        assert c.get("/v1/sync/status").status_code == 200  # authed without explicit /login
+
+
+def test_run_autosync_logs_in_and_runs(tmp_path, sync_server):
+    handle = CollectionHandle(_creds_settings(tmp_path, sync_server))
+    try:
+        result = sync_router.run_autosync(handle)
+        assert "skipped" not in result  # creds present -> it logged in and synced
+        assert handle.sync_auth is not None
+        # fresh server -> a full sync is required (and left for manual direction)
+        assert result["required"] in ("full_upload", "full_sync", "no_changes", "normal_sync")
+    finally:
+        handle.close()

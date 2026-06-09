@@ -54,6 +54,11 @@ collection the Anki desktop app has open** — the backend takes an exclusive lo
 | `ANKI_API_PORT` | `8765` | Bind port. |
 | `ANKI_API_V3_SCHEDULER` | `true` | Enable the v3 scheduler on open. |
 | `ANKI_API_LANG` | `en` | Backend locale (used by i18n-dependent helpers). |
+| `ANKI_API_SYNC_USERNAME` | *(unset)* | AnkiWeb email — if set (with the password), the server auto-logs-in on startup. |
+| `ANKI_API_SYNC_PASSWORD` | *(unset)* | AnkiWeb password (used once to obtain a token, which is then persisted). |
+| `ANKI_API_SYNC_ENDPOINT` | *(unset)* | Sync server URL; unset = AnkiWeb. |
+| `ANKI_API_AUTOSYNC_INTERVAL` | `0` | Seconds between background incremental syncs; `0` disables. |
+| `ANKI_API_SYNC_AUTH_PATH` | *(next to collection)* | Where the persisted sync token (`0600`) is stored. |
 
 ### Example
 
@@ -102,6 +107,15 @@ so the direction is a deliberate choice). Full sync briefly closes and reopens t
 collection under the writer lock. The collection this server owns and the
 AnkiWeb/self-hosted account converge through normal sync — so your phone and
 desktop stay in step with changes made via the API.
+
+**Staying logged in & auto-sync.** The auth token from `/sync/login` is persisted
+to a `0600` sidecar file, so a login survives restarts. If `ANKI_API_SYNC_USERNAME`
+/ `ANKI_API_SYNC_PASSWORD` are set, the server logs in automatically on startup
+when no token is present (the password is only used to mint a token; it isn't
+stored). Set `ANKI_API_AUTOSYNC_INTERVAL` to have the server run an incremental
+sync on that cadence in the background. Auto-sync never performs a full sync on its
+own — if one is required it's logged and left for you to resolve via the explicit
+full-upload/download endpoints, so there's no silent data loss.
 
 ## Limitations
 

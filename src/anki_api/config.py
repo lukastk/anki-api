@@ -18,6 +18,23 @@ class Settings:
     enable_v3_scheduler: bool = True
     lang: str = "en"
 
+    # Sync. Auth is persisted to a 0600 sidecar file so a login survives restarts.
+    # If no persisted auth exists and sync_username/password are set, the server
+    # logs in automatically on startup (endpoint=None -> AnkiWeb).
+    sync_auth_path: str | None = None
+    sync_username: str | None = None
+    sync_password: str | None = None
+    sync_endpoint: str | None = None  # None -> AnkiWeb
+    # Background incremental sync interval in seconds; 0 disables it.
+    autosync_interval: int = 0
+
+    @property
+    def resolved_sync_auth_path(self) -> str:
+        """Where the persisted sync auth token lives (defaults next to the collection)."""
+        if self.sync_auth_path:
+            return self.sync_auth_path
+        return os.path.join(os.path.dirname(self.collection_path), "sync_auth.json")
+
     @classmethod
     def from_env(cls) -> "Settings":
         path = os.environ.get("ANKI_API_COLLECTION")
@@ -30,6 +47,11 @@ class Settings:
             collection_path=os.path.abspath(path),
             enable_v3_scheduler=_env_bool("ANKI_API_V3_SCHEDULER", default=True),
             lang=os.environ.get("ANKI_API_LANG", "en"),
+            sync_auth_path=os.environ.get("ANKI_API_SYNC_AUTH_PATH") or None,
+            sync_username=os.environ.get("ANKI_API_SYNC_USERNAME") or None,
+            sync_password=os.environ.get("ANKI_API_SYNC_PASSWORD") or None,
+            sync_endpoint=os.environ.get("ANKI_API_SYNC_ENDPOINT") or None,
+            autosync_interval=int(os.environ.get("ANKI_API_AUTOSYNC_INTERVAL", "0")),
         )
 
 

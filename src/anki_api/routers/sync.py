@@ -13,6 +13,8 @@ deliberate choice). Full sync closes+reopens the collection under the writer loc
 
 from __future__ import annotations
 
+import logging
+
 from anki import sync_pb2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -21,6 +23,8 @@ from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+
+log = logging.getLogger("anki_api.sync")
 
 _REQUIRED = {
     sync_pb2.SyncCollectionResponse.NO_CHANGES: "no_changes",
@@ -52,17 +56,52 @@ def _auth(handle: CollectionHandle):
     return handle.sync_auth
 
 
+def _incremental_sync(handle: CollectionHandle, sync_media: bool) -> dict:
+    """Run one incremental sync, persisting any server endpoint shard change.
+
+    Shared by POST /sync and the background autosync loop. Does NOT perform a full
+    sync — it only reports when one is required, so the direction stays a
+    deliberate choice."""
+    auth = _auth(handle)
+    with handle.locked() as col:
+        out = col.sync_collection(auth, sync_media)
+    handle.server_media_usn = out.server_media_usn
+    # AnkiWeb shards by host: a sync can hand back a new endpoint to use from now
+    # on. Persist it so subsequent syncs (and restarts) hit the right server.
+    if out.new_endpoint and out.new_endpoint != auth.endpoint:
+        auth.endpoint = out.new_endpoint
+        handle.save_sync_auth(auth)
+    return {
+        "required": _REQUIRED.get(out.required, out.required),
+        "server_message": out.server_message,
+    }
+
+
+def run_autosync(handle: CollectionHandle) -> dict:
+    """One autosync tick (called from the background loop in app.py).
+
+    Logs in from configured credentials if needed, then runs an incremental sync.
+    A required full sync is reported and left alone (no silent data loss)."""
+    if not handle.ensure_logged_in():
+        return {"skipped": "not logged in"}
+    result = _incremental_sync(handle, sync_media=True)
+    if result["required"] not in ("no_changes", "normal_sync"):
+        log.warning("autosync: full sync required (%s); resolve direction manually "
+                    "via /sync/full-upload or /sync/full-download", result["required"])
+    return result
+
+
 @router.post("/login")
 def login(body: Login, handle: CollectionHandle = Depends(get_handle)) -> dict:
     with handle.locked() as col:
         auth = col.sync_login(body.username, body.password, body.endpoint or None)
-    handle.sync_auth = auth
+    handle.save_sync_auth(auth)
     return {"logged_in": True, "endpoint": auth.endpoint or "ankiweb"}
 
 
 @router.post("/logout")
 def logout(handle: CollectionHandle = Depends(get_handle)) -> dict:
-    handle.sync_auth = None
+    handle.clear_sync_auth()
     return {"logged_in": False}
 
 
@@ -77,14 +116,7 @@ def status(handle: CollectionHandle = Depends(get_handle)) -> dict:
 @router.post("")
 def sync(body: SyncOptions, handle: CollectionHandle = Depends(get_handle)) -> dict:
     """Perform an incremental sync. Reports if a full sync is additionally required."""
-    auth = _auth(handle)
-    with handle.locked() as col:
-        out = col.sync_collection(auth, body.sync_media)
-    handle.server_media_usn = out.server_media_usn
-    return {
-        "required": _REQUIRED.get(out.required, out.required),
-        "server_message": out.server_message,
-    }
+    return _incremental_sync(handle, body.sync_media)
 
 
 @router.post("/full-upload")

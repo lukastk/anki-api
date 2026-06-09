@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +17,20 @@ from .routers import (
     util,
 )
 
+log = logging.getLogger("anki_api.sync")
+
+
+async def _autosync_loop(handle: CollectionHandle, interval: int) -> None:
+    """Run an incremental sync every `interval` seconds (the sync itself is
+    blocking, so it runs in a worker thread). Errors are logged, never fatal."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            result = await asyncio.to_thread(sync.run_autosync, handle)
+            log.info("autosync: %s", result)
+        except Exception as e:  # a bad tick must not kill the loop
+            log.warning("autosync tick failed: %s", e)
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
@@ -23,9 +39,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         handle = CollectionHandle(settings)
         app.state.handle = handle
+        # Establish sync auth up front (persisted token, or auto-login from creds).
+        handle.ensure_logged_in()
+        autosync_task = None
+        if settings.autosync_interval > 0:
+            autosync_task = asyncio.create_task(_autosync_loop(handle, settings.autosync_interval))
         try:
             yield
         finally:
+            if autosync_task is not None:
+                autosync_task.cancel()
             handle.close()
             app.state.handle = None
 
