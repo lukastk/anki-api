@@ -30,9 +30,7 @@ _MAPPING: list[tuple[type[Exception], int, str]] = [
     (anki_errors.InvalidInput, 400, "invalid_input"),
     (anki_errors.SearchError, 400, "invalid_search"),
     (anki_errors.UndoEmpty, 409, "undo_empty"),
-    (anki_errors.AbortSchemaModification, 409, "schema_modification_required"),
     (anki_errors.DBError, 409, "collection_busy"),
-    (CollectionUnavailable, 503, "collection_unavailable"),
 ]
 
 
@@ -52,3 +50,11 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(anki_errors.DBError)
     async def _db(_: Request, exc: anki_errors.DBError) -> JSONResponse:
         return JSONResponse(status_code=409, content=_error_body("collection_busy", str(exc)))
+
+    # AbortSchemaModification is NOT a BackendError subclass, so it needs its own
+    # handler (raised when a schema-modifying op would force a full sync).
+    @app.exception_handler(anki_errors.AbortSchemaModification)
+    async def _schema(_: Request, exc: anki_errors.AbortSchemaModification) -> JSONResponse:
+        return JSONResponse(
+            status_code=409, content=_error_body("schema_modification_required", str(exc))
+        )

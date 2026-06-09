@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
@@ -70,9 +70,7 @@ def get_deck(deck_id: str, handle: CollectionHandle = Depends(get_handle)) -> di
     with handle.locked() as col:
         deck = col.decks.get_legacy(did)
         if deck is None:
-            from anki.errors import NotFoundError
-
-            raise NotFoundError()
+            raise HTTPException(status_code=404, detail=f"deck {deck_id} not found")
         return {
             "id": str(deck["id"]),
             "name": deck["name"],

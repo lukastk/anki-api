@@ -91,9 +91,12 @@ def main() -> None:
     assert cloze["text"] == "quick", cloze
     print("extract-cloze-for-typing ->", cloze["text"])
 
-    # --- blocker 2: tts voices (synthesis needs a real engine; listing must work) ---
-    voices = c.get("/media/tts/voices").json()
-    print(f"tts voices available: {len(voices)}")
+    # --- blocker 2: tts voices (OS/engine-dependent; 200 list or 400 not-implemented) ---
+    vr = c.get("/media/tts/voices")
+    if vr.status_code == 200:
+        print(f"tts voices available: {len(vr.json())}")
+    else:
+        print(f"tts not available on this OS ({vr.status_code}: {vr.json().get('error')})")
 
     # --- delete note ---
     dele = c.delete(f"/notes/{note_id}").json()

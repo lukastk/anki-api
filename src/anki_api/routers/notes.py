@@ -23,6 +23,12 @@ class CreateNote(BaseModel):
     tags: list[str] = []
 
 
+class CreatedNote(Mutation):
+    """Create response: the mutation envelope (id = note id) plus the generated cards."""
+
+    card_ids: list[str] = []
+
+
 class UpdateNote(BaseModel):
     fields: dict[str, str] | None = None
     tags: list[str] | None = None
@@ -48,7 +54,7 @@ def _apply_fields(note, fields: dict[str, str]) -> None:
 
 
 @router.post("")
-def create_note(body: CreateNote, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+def create_note(body: CreateNote, handle: CollectionHandle = Depends(get_handle)) -> CreatedNote:
     with handle.locked() as col:
         notetype = col.models.by_name(body.notetype)
         if notetype is None:
@@ -58,7 +64,9 @@ def create_note(body: CreateNote, handle: CollectionHandle = Depends(get_handle)
         _apply_fields(note, body.fields)
         note.tags = list(body.tags)
         out = col.add_note(note, did)
-        return mutation(out.changes, id=note.id)
+        m = mutation(out.changes, id=note.id)
+        return CreatedNote(id=m.id, count=m.count, changes=m.changes,
+                           card_ids=[str(c.id) for c in note.cards()])
 
 
 @router.get("/{note_id}")
