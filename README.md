@@ -8,8 +8,8 @@ custom Anki UI.
 
 ## Status
 
-Feature-parity build: ~110 endpoints over the full Anki feature set, backed by a
-rigorous test suite (186 pytest tests, unit + e2e in-process over the ASGI app).
+Full feature parity: ~120 endpoints over the entire Anki feature set, backed by a
+rigorous test suite (195 pytest tests, unit + e2e in-process over the ASGI app).
 See [`docs/api-surface-v1.md`](docs/api-surface-v1.md) for the designed surface
 and [`_dev/experiments/`](_dev/experiments/) for the feasibility spikes the
 design is grounded in.
@@ -20,8 +20,9 @@ set-deck/restore), review (v3 scheduler, answer, set-due-date), search & browse
 (configurable columns, find/replace, find-duplicates), tags, statistics, config
 & preferences, media, import/export (apkg + CSV), FSRS controls, filtered decks
 & custom study, undo/redo, collection maintenance (check db / optimize / empty
-cards), **sync** (AnkiWeb or self-hosted), type-in-the-answer, TTS, and UI-chrome
-helpers (timespan formatting, markdown, help links).
+cards), **sync** (AnkiWeb or self-hosted), image occlusion authoring,
+type-in-the-answer, TTS, and UI-chrome helpers (timespan formatting, markdown,
+help links).
 
 ### Sync
 
@@ -34,8 +35,6 @@ side, so the direction is a deliberate choice). Full sync briefly closes and
 reopens the collection under the writer lock. The collection this server owns and
 the AnkiWeb/self-hosted account converge through normal sync — so your phone and
 desktop stay in step with changes made via the API.
-
-Not implemented (niche): Image Occlusion note authoring.
 
 ## Architecture (from the experiments)
 
