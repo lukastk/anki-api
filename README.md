@@ -1,5 +1,7 @@
 # anki-api
 
+[![CI](https://github.com/lukastk/anki-api/actions/workflows/ci.yml/badge.svg)](https://github.com/lukastk/anki-api/actions/workflows/ci.yml)
+
 A headless REST API server that wraps an Anki collection — create, edit, search,
 review, sync, import/export, and manage cards over HTTP **without launching the
 Anki desktop app**. Built directly on the [`anki`](https://pypi.org/project/anki/)
