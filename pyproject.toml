@@ -3,6 +3,9 @@ name = "anki-api"
 version = "0.1.0"
 description = "A headless REST API server wrapping an Anki collection (built on the anki package, no Qt)."
 readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+keywords = ["anki", "spaced-repetition", "flashcards", "rest", "api", "fastapi"]
 # The anki wheel ships no CPython 3.13 build yet; 3.12 is the safe ceiling (see _dev/experiments/00).
 requires-python = ">=3.9,<3.13"
 dependencies = [
@@ -12,6 +15,10 @@ dependencies = [
     "pydantic>=2.7",
     "python-multipart>=0.0.20",
 ]
+
+[project.urls]
+Homepage = "https://github.com/lukastk/anki-api"
+Repository = "https://github.com/lukastk/anki-api"
 
 [project.scripts]
 anki-api = "anki_api.__main__:main"
