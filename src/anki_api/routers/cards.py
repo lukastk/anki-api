@@ -26,6 +26,18 @@ class SetFlag(CardIds):
     flag: int = Field(ge=0, le=7, description="0 clears the flag; 1-7 are the colored flags")
 
 
+class Forget(CardIds):
+    restore_position: bool = False
+    reset_counts: bool = False
+
+
+class RepositionNew(CardIds):
+    starting_from: int = 0
+    step_size: int = 1
+    randomize: bool = False
+    shift_existing: bool = False
+
+
 def _card_view(card) -> dict:
     return {
         "id": str(card.id),
@@ -89,6 +101,28 @@ def restore_buried_and_suspended(body: CardIds, handle: CollectionHandle = Depen
     """Clear both buried and suspended states for a selection in one undoable op."""
     with handle.locked() as col:
         return mutation(col._backend.restore_buried_and_suspended_cards(parse_ids(body.card_ids)))
+
+
+@router.post("/actions/forget")
+def forget(body: Forget, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Reset cards to the 'new' state (clears scheduling history)."""
+    with handle.locked() as col:
+        return mutation(col.sched.schedule_cards_as_new(
+            parse_ids(body.card_ids),
+            restore_position=body.restore_position,
+            reset_counts=body.reset_counts,
+        ))
+
+
+@router.post("/actions/reposition")
+def reposition(body: RepositionNew, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Reposition new cards' due order (only affects cards in the new queue)."""
+    with handle.locked() as col:
+        out = col.sched.reposition_new_cards(
+            parse_ids(body.card_ids), body.starting_from, body.step_size,
+            body.randomize, body.shift_existing,
+        )
+        return mutation(out.changes, count=out.count)
 
 
 @router.post("/actions/set-deck")

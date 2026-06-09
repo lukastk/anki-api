@@ -46,3 +46,11 @@ def format_timespan(body: FormatTimespan, handle: CollectionHandle = Depends(get
 def render_markdown(body: RenderMarkdown, handle: CollectionHandle = Depends(get_handle)) -> dict:
     with handle.locked() as col:
         return {"html": col.render_markdown(body.markdown, body.sanitize)}
+
+
+@router.get("/help/link")
+def help_link(page: int, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Resolve a HelpPage enum index to its versioned Anki-manual URL (for the
+    contextual Help buttons a full client shows on dialogs)."""
+    with handle.locked() as col:
+        return {"url": col._backend.help_page_link(page)}
