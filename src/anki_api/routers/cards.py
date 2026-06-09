@@ -84,6 +84,13 @@ def unbury(body: CardIds, handle: CollectionHandle = Depends(get_handle)) -> Mut
         return mutation(col.sched.unbury_cards(parse_ids(body.card_ids)))
 
 
+@router.post("/actions/restore-buried-and-suspended")
+def restore_buried_and_suspended(body: CardIds, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Clear both buried and suspended states for a selection in one undoable op."""
+    with handle.locked() as col:
+        return mutation(col._backend.restore_buried_and_suspended_cards(parse_ids(body.card_ids)))
+
+
 @router.post("/actions/set-deck")
 def set_deck(body: SetDeck, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
     with handle.locked() as col:

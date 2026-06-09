@@ -139,6 +139,16 @@ def get_notetype(notetype_id: str, handle: CollectionHandle = Depends(get_handle
         return _view(_get(col, nid))
 
 
+@router.get("/{notetype_id}/default-deck")
+def default_deck(notetype_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """The deck last used with this notetype (Add screen picks it on notetype switch)."""
+    nid = parse_id(notetype_id)
+    with handle.locked() as col:
+        _get(col, nid)  # 404 if missing
+        did = col.default_deck_for_notetype(nid)
+        return {"deck_id": str(did) if did is not None else None}
+
+
 @router.post("")
 def create_notetype(body: CreateNotetype, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
     with handle.locked() as col:

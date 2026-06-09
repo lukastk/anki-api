@@ -9,7 +9,9 @@ from fastapi import FastAPI
 from .collection_handle import CollectionHandle
 from .config import Settings
 from .errors import register_exception_handlers
-from .routers import cards, decks, notes, notetypes, review, search, system, tts, typing_answer, undo
+from .routers import (
+    cards, decks, notes, notetypes, review, search, system, tags, tts, typing_answer, undo, util,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,7 +35,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     register_exception_handlers(app)
 
-    for module in (system, decks, notes, notetypes, cards, review, search, undo, typing_answer, tts):
+    for module in (system, decks, notes, notetypes, cards, review, search, tags, undo,
+                   typing_answer, tts, util):
         app.include_router(module.router, prefix="/v1")
 
     return app
