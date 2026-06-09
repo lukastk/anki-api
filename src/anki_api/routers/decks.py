@@ -26,6 +26,10 @@ class Reparent(BaseModel):
     new_parent: str
 
 
+class AssignPreset(BaseModel):
+    preset_id: str
+
+
 def _tree_node(node) -> dict:
     return {
         "deck_id": str(node.deck_id),
@@ -78,6 +82,28 @@ def get_deck(deck_id: str, handle: CollectionHandle = Depends(get_handle)) -> di
             "config_id": str(deck["conf"]) if "conf" in deck else None,
             "description": deck.get("desc", ""),
         }
+
+
+@router.get("/{deck_id}/preset")
+def get_deck_preset(deck_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """The effective deck-options preset (config group) for this deck."""
+    did = parse_id(deck_id)
+    with handle.locked() as col:
+        if col.decks.get_legacy(did) is None:
+            raise HTTPException(status_code=404, detail=f"deck {deck_id} not found")
+        cfg = col.decks.config_dict_for_deck_id(did)
+        return {"id": str(cfg["id"]), "name": cfg["name"]}
+
+
+@router.post("/{deck_id}/preset")
+def assign_deck_preset(deck_id: str, body: AssignPreset, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    did = parse_id(deck_id)
+    with handle.locked() as col:
+        deck = col.decks.get_legacy(did)
+        if deck is None:
+            raise HTTPException(status_code=404, detail=f"deck {deck_id} not found")
+        col.decks.set_config_id_for_deck_dict(deck, parse_id(body.preset_id))
+        return mutation(col.decks.update_dict(deck))
 
 
 @router.post("")
