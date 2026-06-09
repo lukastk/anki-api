@@ -1,6 +1,6 @@
 # Anki REST API — v1 Surface (for sign-off)
 
-> **Status:** draft for review — not yet implemented. Maps the REST surface needed to build a custom Anki UI with **full feature parity**, grounded in the real `anki==25.9.4` package source. Every capability cites a real backend call; none invented.
+> **Status:** ✅ IMPLEMENTED. The full surface below is built in `src/anki_api/` (~110 endpoints) with 186 passing unit + e2e tests. A few items diverged from this draft during implementation (grounded in real backend behavior) — notably: `POST /notes` also returns `card_ids`; browse rows render *configurable active columns* via `browser_row_for_id` (not a fixed summary); deck-preset `get_config` silently returns the Default for unknown ids so we detect-by-id and 404; TTS is OS-dependent (400 when unavailable). Not implemented: Image Occlusion authoring, and sync (out of v1 scope by design). Maps the REST surface for building a custom Anki UI with **full feature parity**, grounded in the real `anki==25.9.4` package source; every capability cites a real backend call.
 >
 > **Provenance:** produced by a multi-agent discovery pass — 15 parallel agents (one per Anki domain) read the installed package incl. `_backend_generated.py`; a synthesis pass merged them into the unified surface below (**374 endpoints across 15 domains**); a feature-parity critic then audited it against every Anki UI screen. The critic's findings are folded in as the **Parity audit** section at the end — integrate them into the relevant groups during the build.
 >
