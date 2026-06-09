@@ -69,6 +69,16 @@ def create_note(body: CreateNote, handle: CollectionHandle = Depends(get_handle)
                            card_ids=[str(c.id) for c in note.cards()])
 
 
+@router.get("/find-duplicates")
+def find_duplicates(field: str, search: str = "", handle: CollectionHandle = Depends(get_handle)) -> list[dict]:
+    """Notes sharing the same value in `field` (Notes > Find Duplicates)."""
+    with handle.locked() as col:
+        return [
+            {"value": value, "note_ids": [str(nid) for nid in nids]}
+            for value, nids in col.find_dupes(field, search)
+        ]
+
+
 @router.get("/{note_id}")
 def get_note(note_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
     nid = parse_id(note_id)

@@ -16,6 +16,7 @@ class Settings:
 
     collection_path: str
     enable_v3_scheduler: bool = True
+    lang: str = "en"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -28,6 +29,7 @@ class Settings:
         return cls(
             collection_path=os.path.abspath(path),
             enable_v3_scheduler=_env_bool("ANKI_API_V3_SCHEDULER", default=True),
+            lang=os.environ.get("ANKI_API_LANG", "en"),
         )
 
 
