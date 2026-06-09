@@ -49,8 +49,8 @@ def main() -> None:
     found = c.post("/search/cards", json={"query": "deck:Smoke::Geo"}).json()
     assert found["count"] == 1 and found["card_ids"] == [card_id]
     rows = c.post("/browser/rows", json={"card_ids": found["card_ids"]}).json()
-    assert rows[0]["deck"] == "Smoke::Geo"
-    print("browser row:", {"q": rows[0]["question"], "deck": rows[0]["deck"]})
+    assert "Smoke::Geo" in rows[0]["cells"]  # deck column among the active columns
+    print("browser row cells:", rows[0]["cells"])
 
     # --- card actions ---
     flag = c.post("/cards/actions/set-flag", json={"card_ids": [card_id], "flag": 1}).json()
