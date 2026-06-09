@@ -1,0 +1,29 @@
+[project]
+name = "anki-api"
+version = "0.1.0"
+description = "A headless REST API server wrapping an Anki collection (built on the anki package, no Qt)."
+readme = "README.md"
+# The anki wheel ships no CPython 3.13 build yet; 3.12 is the safe ceiling (see _dev/experiments/00).
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "anki>=25.9,<26",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+]
+
+[project.scripts]
+anki-api = "anki_api.__main__:main"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/anki_api"]

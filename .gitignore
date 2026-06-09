@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Local collections / data
+*.anki2
+*.anki2-*
+collection.media/
+/data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
