@@ -32,6 +32,9 @@ class V1Client:
     def put(self, path: str, **kw):
         return self._c.put("/v1" + path, **kw)
 
+    def patch(self, path: str, **kw):
+        return self._c.patch("/v1" + path, **kw)
+
     def delete(self, path: str, **kw):
         return self._c.delete("/v1" + path, **kw)
 
