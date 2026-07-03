@@ -28,6 +28,11 @@ router = APIRouter(prefix="/notetypes", tags=["notetypes"])
 class CreateNotetype(BaseModel):
     name: str
     stock: str = "Basic"
+    # Extra fields to include AT creation. Adding a brand-new notetype is an
+    # incrementally-syncable change, but add_field on an existing notetype modifies
+    # the schema (forces a full sync) — so callers that want extra fields should
+    # pass them here and get a fully-formed notetype in one schema-neutral op.
+    fields: list[str] = []
 
 
 class CloneNotetype(BaseModel):
@@ -157,6 +162,10 @@ def create_notetype(body: CreateNotetype, handle: CollectionHandle = Depends(get
             raise HTTPException(status_code=400, detail=f"unknown stock notetype {body.stock!r}")
         nt = stocks[body.stock](col)
         nt["name"] = body.name
+        # Extra fields are added to the in-memory dict BEFORE add_dict, so the whole
+        # creation is one incremental (non-schema-modifying) operation.
+        for field_name in body.fields:
+            col.models.add_field(nt, col.models.new_field(field_name))
         out = col.models.add_dict(nt)
         return mutation(out.changes, id=out.id)
 

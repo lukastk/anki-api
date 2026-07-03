@@ -38,15 +38,24 @@ class RepositionNew(CardIds):
     shift_existing: bool = False
 
 
+class PatchCard(BaseModel):
+    interval: int | None = Field(default=None, ge=0, description="interval in days (ivl)")
+    factor: int | None = Field(default=None, ge=0, description="ease per-mille, e.g. 2500")
+    reps: int | None = Field(default=None, ge=0)
+    lapses: int | None = Field(default=None, ge=0)
+
+
 def _card_view(card) -> dict:
     return {
         "id": str(card.id),
         "note_id": str(card.nid),
         "deck_id": str(card.did),
+        "ord": card.ord,
         "queue": card.queue,
         "type": card.type,
         "due": card.due,
         "interval": card.ivl,
+        "factor": card.factor,
         "reps": card.reps,
         "lapses": card.lapses,
         "flag": card.user_flag(),
@@ -55,11 +64,39 @@ def _card_view(card) -> dict:
     }
 
 
+@router.post("/views")
+def card_views(body: CardIds, handle: CollectionHandle = Depends(get_handle)) -> list[dict]:
+    """Bulk card views for a card-id selection (avoids N round-trips — e.g. when
+    snapshotting scheduling state for a whole search)."""
+    with handle.locked() as col:
+        return [_card_view(col.get_card(cid)) for cid in parse_ids(body.card_ids)]
+
+
 @router.get("/{card_id}")
 def get_card(card_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
     cid = parse_id(card_id)
     with handle.locked() as col:
         return _card_view(col.get_card(cid))
+
+
+@router.patch("/{card_id}")
+def patch_card(card_id: str, body: PatchCard, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Write scheduling columns directly (mutate-then-update_card). Meant for
+    restoring scheduling onto recreated cards; an incremental (non-schema) change.
+    `due`/`queue`/`type` are deliberately NOT writable here — use
+    /review/set-due-date, which converts state safely."""
+    cid = parse_id(card_id)
+    with handle.locked() as col:
+        card = col.get_card(cid)
+        if body.interval is not None:
+            card.ivl = body.interval
+        if body.factor is not None:
+            card.factor = body.factor
+        if body.reps is not None:
+            card.reps = body.reps
+        if body.lapses is not None:
+            card.lapses = body.lapses
+        return mutation(col.update_card(card))
 
 
 @router.get("/{card_id}/stats")

@@ -3,7 +3,7 @@
 Auto-generated from the live routes. The server also serves interactive
 OpenAPI docs at **`/docs`** (Swagger UI) and **`/redoc`**, and the raw schema
 at `/openapi.json`. All paths are under `/v1`.
-**125 endpoints across 21 domains.**
+**128 endpoints across 21 domains.**
 
 
 ## cards
@@ -19,7 +19,9 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/cards/actions/suspend` |  |
 | `POST` | `/v1/cards/actions/unbury` |  |
 | `POST` | `/v1/cards/actions/unsuspend` |  |
+| `POST` | `/v1/cards/views` | Bulk card views for a card-id selection (avoids N round-trips — e.g. when |
 | `GET` | `/v1/cards/{card_id}` |  |
+| `PATCH` | `/v1/cards/{card_id}` | Write scheduling columns directly (mutate-then-update_card). Meant for |
 | `GET` | `/v1/cards/{card_id}/stats` | The fully-rendered Card Info HTML that desktop/AnkiDroid show. |
 
 ## deck-presets
@@ -176,6 +178,7 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/sync` | Perform an incremental sync. Reports if a full sync is additionally required. |
 | `POST` | `/v1/sync/full-download` | Overwrite this collection with the server's (full download). |
 | `POST` | `/v1/sync/full-upload` | Overwrite the server's collection with this one (full upload). |
+| `GET` | `/v1/sync/health` | Local sync-health facts — no server contact, no auth required. |
 | `POST` | `/v1/sync/login` |  |
 | `POST` | `/v1/sync/logout` |  |
 | `POST` | `/v1/sync/media` |  |

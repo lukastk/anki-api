@@ -22,6 +22,7 @@ def collection_info(handle: CollectionHandle = Depends(get_handle)) -> dict:
     with handle.locked() as col:
         return {
             "path": handle.path,
+            "created": str(col.db.scalar("select crt from col")),  # epoch seconds
             "schema_modified": str(col.db.scalar("select scm from col")),
             "modified": str(col.mod),
             "v3_scheduler": col.v3_scheduler(),

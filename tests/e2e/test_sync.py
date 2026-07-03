@@ -146,3 +146,44 @@ def test_run_autosync_logs_in_and_runs(tmp_path, sync_server):
         assert result["required"] in ("full_upload", "full_sync", "no_changes", "normal_sync")
     finally:
         handle.close()
+
+
+# --- sync health (local-only facts; no auth, no server contact) ---
+
+def test_sync_health_never_synced(api):
+    """Health needs no login and flags the never-synced state (the state that
+    preceded the 2026-07-03 wipe: full-uploading such a collection overwrites
+    unknown remote state)."""
+    h = api.get("/sync/health").json()
+    assert h["never_synced"] is True
+    assert h["schema_changed"] is True  # scm > ls == 0
+    assert h["logged_in"] is False
+    assert int(h["collection_created"]) > 0
+    assert int(api.get("/collection").json()["created"]) > 0
+
+
+def test_new_fully_formed_notetype_stays_incremental(api, sync_server):
+    """THE regression that keeps mysrs bootstraps from breaking sync: creating a
+    brand-new notetype WITH extra fields must not flag a schema change."""
+    api.post("/sync/login", json={"username": USER, "password": PASS, "endpoint": sync_server})
+    api.post("/sync/full-upload")
+    h = api.get("/sync/health").json()
+    assert h["never_synced"] is False and h["schema_changed"] is False
+
+    api.post("/notetypes", json={"name": "mysrs Basic", "fields": ["mysrs_id", "mysrs_source", "mysrs_meta"]})
+    h = api.get("/sync/health").json()
+    assert h["schema_changed"] is False, "fully-formed notetype creation must be incremental"
+    assert api.post("/sync", json={"sync_media": False}).json()["required"] in ("no_changes", "normal_sync")
+
+
+def test_add_field_to_existing_notetype_forces_full_sync(api, sync_server):
+    """The counterpart: add_field on an EXISTING notetype modifies the schema —
+    which is exactly why fully-formed creation matters."""
+    api.post("/sync/login", json={"username": USER, "password": PASS, "endpoint": sync_server})
+    api.post("/sync/full-upload")
+    ntid = api.post("/notetypes", json={"name": "Grows"}).json()["id"]
+    api.post("/sync", json={"sync_media": False})  # push the creation incrementally
+    assert api.get("/sync/health").json()["schema_changed"] is False
+
+    api.post(f"/notetypes/{ntid}/fields", json={"name": "Extra"})
+    assert api.get("/sync/health").json()["schema_changed"] is True

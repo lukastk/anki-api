@@ -75,6 +75,14 @@ def test_create_defaults_to_basic(api):
     assert [f["name"] for f in nt["fields"]] == ["Front", "Back"]
 
 
+def test_create_with_extra_fields(api):
+    """Extra fields are included AT creation (one incremental op — no schema bump;
+    the sync e2e proves the schema semantics)."""
+    out = api.post("/notetypes", json={"name": "WithHidden", "fields": ["h_id", "h_meta"]}).json()
+    nt = api.get(f"/notetypes/{out['id']}").json()
+    assert [f["name"] for f in nt["fields"]] == ["Front", "Back", "h_id", "h_meta"]
+
+
 def test_create_unknown_stock_is_400(api):
     assert api.post("/notetypes", json={"name": "X", "stock": "Nope"}).status_code == 400
 

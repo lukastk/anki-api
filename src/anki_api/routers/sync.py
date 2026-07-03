@@ -105,6 +105,33 @@ def logout(handle: CollectionHandle = Depends(get_handle)) -> dict:
     return {"logged_in": False}
 
 
+@router.get("/health")
+def sync_health(handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Local sync-health facts — no server contact, no auth required.
+
+    Exposes the col table's `scm` (schema-modified, ms) and `ls` (last successful
+    full/first sync, ms). `schema_changed` (scm > ls) means the next sync must be a
+    one-way full sync; `never_synced` (ls == 0) means this collection has never
+    synced with a server at all — full-uploading it would overwrite unknown remote
+    state (this exact state preceded the 2026-07-03 collection wipe). Clients use
+    these to gate full-sync direction decisions.
+    """
+    with handle.locked() as col:
+        scm = col.db.scalar("select scm from col")
+        ls = col.db.scalar("select ls from col")
+        crt = col.db.scalar("select crt from col")
+        return {
+            "schema_modified": str(scm),
+            "last_sync": str(ls),
+            "never_synced": ls == 0,
+            "schema_changed": scm > ls,
+            "logged_in": handle.sync_auth is not None,
+            "collection_created": str(crt),  # epoch seconds (scm/ls are ms)
+            "note_count": col.note_count(),
+            "card_count": col.card_count(),
+        }
+
+
 @router.get("/status")
 def status(handle: CollectionHandle = Depends(get_handle)) -> dict:
     auth = _auth(handle)
