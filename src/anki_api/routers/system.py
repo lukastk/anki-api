@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from google.protobuf.json_format import MessageToDict
 from fastapi import APIRouter, Depends
 
@@ -29,6 +31,19 @@ def collection_info(handle: CollectionHandle = Depends(get_handle)) -> dict:
             "note_count": col.note_count(),
             "card_count": col.card_count(),
         }
+
+
+@router.post("/collection/backup")
+def backup_collection(handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Back up the LIVE collection to backups/ (Anki's own .colpkg backups, with its
+    built-in rotation). `created` is false when the collection is unchanged since
+    the last backup. Complements /sync/backup-remote (which captures the server
+    side); run both before a full sync to possess both pre-overwrite states."""
+    with handle.locked() as col:
+        folder = os.path.join(os.path.dirname(handle.path), "backups")
+        os.makedirs(folder, exist_ok=True)
+        created = col.create_backup(backup_folder=folder, force=True, wait_for_completion=True)
+        return {"created": created, "folder": folder}
 
 
 @router.post("/collection/check-database")

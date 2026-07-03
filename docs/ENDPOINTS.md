@@ -3,7 +3,7 @@
 Auto-generated from the live routes. The server also serves interactive
 OpenAPI docs at **`/docs`** (Swagger UI) and **`/redoc`**, and the raw schema
 at `/openapi.json`. All paths are under `/v1`.
-**128 endpoints across 21 domains.**
+**130 endpoints across 21 domains.**
 
 
 ## cards
@@ -176,6 +176,7 @@ at `/openapi.json`. All paths are under `/v1`.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/sync` | Perform an incremental sync. Reports if a full sync is additionally required. |
+| `POST` | `/v1/sync/backup-remote` | Shadow-download the server's collection into a timestamped backup file. |
 | `POST` | `/v1/sync/full-download` | Overwrite this collection with the server's (full download). |
 | `POST` | `/v1/sync/full-upload` | Overwrite the server's collection with this one (full upload). |
 | `GET` | `/v1/sync/health` | Local sync-health facts — no server contact, no auth required. |
@@ -189,6 +190,7 @@ at `/openapi.json`. All paths are under `/v1`.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/v1/collection` |  |
+| `POST` | `/v1/collection/backup` | Back up the LIVE collection to backups/ (Anki's own .colpkg backups, with its |
 | `POST` | `/v1/collection/check-database` | Tools > Check Database (fsck). Returns the report and whether it was ok. |
 | `GET` | `/v1/collection/empty-cards` | Report of notes that produce empty cards (Tools > Empty Cards). |
 | `POST` | `/v1/collection/empty-cards/remove` |  |

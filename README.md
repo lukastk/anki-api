@@ -10,8 +10,8 @@ as a backend for building a custom Anki UI.
 
 ## Status
 
-**Full feature parity** with the Anki feature set: 128 endpoints across 21
-domains, backed by a rigorous test suite (207 pytest tests — unit + e2e in-process
+**Full feature parity** with the Anki feature set: 130 endpoints across 21
+domains, backed by a rigorous test suite (211 pytest tests — unit + e2e in-process
 over the ASGI app, plus a real-`uvicorn` smoke test and a live sync test against a
 self-hosted sync server).
 

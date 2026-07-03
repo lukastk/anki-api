@@ -187,3 +187,50 @@ def test_add_field_to_existing_notetype_forces_full_sync(api, sync_server):
 
     api.post(f"/notetypes/{ntid}/fields", json={"name": "Extra"})
     assert api.get("/sync/health").json()["schema_changed"] is True
+
+
+# --- defensive backups (possession, not inference) ---
+
+def test_backup_remote_requires_login(api):
+    assert api.post("/sync/backup-remote").status_code == 401
+
+
+def test_backup_remote_captures_server_state_without_touching_live(api, sync_server, settings):
+    api.make_note(deck="D", front="precious-one")
+    api.make_note(deck="D", front="precious-two")
+    api.post("/sync/login", json={"username": USER, "password": PASS, "endpoint": sync_server})
+    api.post("/sync/full-upload")
+
+    mod_before = api.get("/collection").json()["modified"]
+    out = api.post("/sync/backup-remote").json()
+    assert out["note_count"] == 2
+    assert out["card_count"] == 2
+    assert os.path.exists(out["path"])
+    assert os.path.basename(out["path"]).startswith("ankiweb-")
+    # the live collection was never opened/closed/modified
+    assert api.get("/collection").json()["modified"] == mod_before
+    assert api.get("/collection").json()["note_count"] == 2
+
+
+def test_backup_remote_prunes_old_backups(api, sync_server, settings):
+    api.post("/sync/login", json={"username": USER, "password": PASS, "endpoint": sync_server})
+    api.post("/sync/full-upload")
+
+    folder = os.path.join(os.path.dirname(settings.collection_path), "backups")
+    os.makedirs(folder, exist_ok=True)
+    # seed 5 fake older backups (lexically older than any real timestamp)
+    for i in range(5):
+        with open(os.path.join(folder, f"ankiweb-00000000-00000{i}.anki2"), "w") as f:
+            f.write("stale")
+
+    api.post("/sync/backup-remote")
+    import glob as _glob
+    remaining = sorted(_glob.glob(os.path.join(folder, "ankiweb-*.anki2")))
+    assert len(remaining) == 5  # REMOTE_BACKUP_KEEP
+    assert not os.path.basename(remaining[0]).startswith("ankiweb-00000000-000000"), "oldest pruned"
+
+
+def test_collection_backup_creates_colpkg(api, settings):
+    out = api.post("/collection/backup").json()
+    assert out["created"] is True
+    assert any(name.endswith(".colpkg") for name in os.listdir(out["folder"]))

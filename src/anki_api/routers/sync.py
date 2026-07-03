@@ -13,9 +13,14 @@ deliberate choice). Full sync closes+reopens the collection under the writer loc
 
 from __future__ import annotations
 
+import glob
 import logging
+import os
+import shutil
+import time
 
 from anki import sync_pb2
+from anki.collection import Collection
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -25,6 +30,9 @@ from ..deps import get_handle
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 log = logging.getLogger("anki_api.sync")
+
+# How many remote shadow-backups (backup-remote) to keep.
+REMOTE_BACKUP_KEEP = 5
 
 _REQUIRED = {
     sync_pb2.SyncCollectionResponse.NO_CHANGES: "no_changes",
@@ -174,3 +182,46 @@ def sync_media(handle: CollectionHandle = Depends(get_handle)) -> dict:
     with handle.locked() as col:
         col.sync_media(auth)
     return {"ok": True}
+
+
+def _prune_remote_backups(folder: str, keep: int) -> None:
+    """Keep the newest `keep` ankiweb-*.anki2 backups; remove older ones (plus any
+    sidecar files/dirs the throwaway collection created next to them)."""
+    backups = sorted(glob.glob(os.path.join(folder, "ankiweb-*.anki2")))
+    for path in backups[:-keep] if keep else backups:
+        prefix = path[: -len(".anki2")]
+        for stale in glob.glob(prefix + "*"):
+            if os.path.isdir(stale):
+                shutil.rmtree(stale, ignore_errors=True)
+            else:
+                os.remove(stale)
+
+
+@router.post("/backup-remote")
+def backup_remote(handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Shadow-download the server's collection into a timestamped backup file.
+
+    Possession, not inference: run this BEFORE any full-upload so the remote's
+    pre-overwrite state is on local disk even if the upload turns out to be wrong.
+    Uses a THROWAWAY collection at backups/ankiweb-<utc>.anki2 — the live collection
+    is never touched (no writer lock, no close/reopen, no 503 window). Collection DB
+    only; media syncs separately. Keeps the newest REMOTE_BACKUP_KEEP backups.
+    """
+    auth = _auth(handle)
+    folder = os.path.join(os.path.dirname(handle.path), "backups")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, time.strftime("ankiweb-%Y%m%d-%H%M%S.anki2", time.gmtime()))
+
+    col = Collection(path)
+    try:
+        col.close_for_full_sync()
+        col.full_upload_or_download(auth=auth, server_usn=None, upload=False)
+        col.reopen(after_full_sync=True)
+        note_count = col.note_count()
+        card_count = col.card_count()
+    finally:
+        col.close()
+
+    _prune_remote_backups(folder, REMOTE_BACKUP_KEEP)
+    log.info("backup-remote: %s (%d notes / %d cards)", path, note_count, card_count)
+    return {"path": path, "note_count": note_count, "card_count": card_count}
