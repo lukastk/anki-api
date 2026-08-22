@@ -51,6 +51,9 @@ class CollectionHandle:
         self._auth_path = settings.resolved_sync_auth_path
         self.sync_auth: SyncAuth | None = self._load_auth()
         self.server_media_usn: int = 0
+        # Last full-sync `required` the autosync loop saw, so it only notifies on a
+        # transition (a persistent blocked state must not toast every tick).
+        self.autosync_last_required: str | None = None
 
     @contextmanager
     def locked(self) -> Iterator[Collection]:

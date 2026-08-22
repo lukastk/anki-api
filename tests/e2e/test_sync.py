@@ -148,6 +148,63 @@ def test_run_autosync_logs_in_and_runs(tmp_path, sync_server):
         handle.close()
 
 
+def _advance_server_schema_behind(a: TestClient, tmp_path, sync_server) -> None:
+    """Given collection A already in sync with the server, have a SECOND collection
+    B download that baseline, bump the shared schema (add a field), and upload it —
+    leaving the server ahead of A with a schema change A does not share."""
+    login = {"username": USER, "password": PASS, "endpoint": sync_server}
+    appb = create_app(Settings(collection_path=str(tmp_path / "b.anki2")))
+    with TestClient(appb) as b:
+        b.post("/v1/sync/login", json=login)
+        b.post("/v1/sync/full-download")
+        bid = next(n["id"] for n in b.get("/v1/notetypes").json() if n["name"] == "Base")
+        b.post(f"/v1/notetypes/{bid}/fields", json={"name": "Extra"})
+        assert b.get("/v1/sync/health").json()["schema_changed"] is True
+        b.post("/v1/sync/full-upload")
+
+
+def test_autosync_download_policy_adopts_server_when_ahead(tmp_path, sync_server):
+    """AUTOSYNC_FULL=download: when the server is ahead with a schema change this
+    collection doesn't share, the autosync loop resolves it by full-downloading."""
+    login = {"username": USER, "password": PASS, "endpoint": sync_server}
+    appa = create_app(Settings(collection_path=str(tmp_path / "a.anki2"), autosync_full="download"))
+    with TestClient(appa) as a:
+        a.post("/v1/sync/login", json=login)
+        a.post("/v1/notetypes", json={"name": "Base"})
+        a.post("/v1/sync/full-upload")
+        assert a.get("/v1/sync/health").json()["schema_changed"] is False
+
+        _advance_server_schema_behind(a, tmp_path, sync_server)
+
+        result = sync_router.run_autosync(appa.state.handle)
+        assert result.get("resolved") == "full_download"
+        # A adopted the server: it is now in sync AND has B's new field.
+        assert a.post("/v1/sync", json={"sync_media": False}).json()["required"] in ("no_changes", "normal_sync")
+        aid = next(n["id"] for n in a.get("/v1/notetypes").json() if n["name"] == "Base")
+        assert "Extra" in [f["name"] for f in a.get(f"/v1/notetypes/{aid}").json()["fields"]]
+
+
+def test_autosync_off_policy_leaves_full_sync_for_manual(tmp_path, sync_server):
+    """Default AUTOSYNC_FULL=off: the same server-ahead situation is NOT auto-resolved
+    — the collection is untouched and the required full sync is left for a manual call."""
+    login = {"username": USER, "password": PASS, "endpoint": sync_server}
+    appa = create_app(Settings(collection_path=str(tmp_path / "a.anki2")))  # default: off
+    with TestClient(appa) as a:
+        a.post("/v1/sync/login", json=login)
+        a.post("/v1/notetypes", json={"name": "Base"})
+        a.post("/v1/sync/full-upload")
+
+        _advance_server_schema_behind(a, tmp_path, sync_server)
+
+        result = sync_router.run_autosync(appa.state.handle)
+        assert "resolved" not in result  # unchanged general-purpose behaviour
+        assert result["required"] in ("full_download", "full_sync")
+        # still blocked — A has NOT adopted the server (no auto-download happened).
+        assert a.post("/v1/sync", json={"sync_media": False}).json()["required"] in ("full_download", "full_sync")
+        aid = next(n["id"] for n in a.get("/v1/notetypes").json() if n["name"] == "Base")
+        assert "Extra" not in [f["name"] for f in a.get(f"/v1/notetypes/{aid}").json()["fields"]]
+
+
 # --- sync health (local-only facts; no auth, no server contact) ---
 
 def test_sync_health_never_synced(api):

@@ -58,6 +58,8 @@ collection the Anki desktop app has open** — the backend takes an exclusive lo
 | `ANKI_API_SYNC_PASSWORD` | *(unset)* | AnkiWeb password (used once to obtain a token, which is then persisted). |
 | `ANKI_API_SYNC_ENDPOINT` | *(unset)* | Sync server URL; unset = AnkiWeb. |
 | `ANKI_API_AUTOSYNC_INTERVAL` | `0` | Seconds between background incremental syncs; `0` disables. |
+| `ANKI_API_AUTOSYNC_FULL` | `off` | What the autosync loop does when a full sync is *required*. `off`: log it, leave the direction to a manual call. `download`: auto-resolve by adopting the server (full-download), but only when this collection has no un-synced schema change of its own. Auto-upload is never a policy. Use only where this collection is a downstream replica, not a primary you review on. |
+| `ANKI_API_AUTOSYNC_NOTIFY_CMD` | *(unset)* | Best-effort notifier run as `<cmd> <title> <body>` when the autosync loop auto-resolves or is blocked on a full sync. |
 | `ANKI_API_SYNC_AUTH_PATH` | *(next to collection)* | Where the persisted sync token (`0600`) is stored. |
 
 ### Example
@@ -113,9 +115,14 @@ to a `0600` sidecar file, so a login survives restarts. If `ANKI_API_SYNC_USERNA
 / `ANKI_API_SYNC_PASSWORD` are set, the server logs in automatically on startup
 when no token is present (the password is only used to mint a token; it isn't
 stored). Set `ANKI_API_AUTOSYNC_INTERVAL` to have the server run an incremental
-sync on that cadence in the background. Auto-sync never performs a full sync on its
-own — if one is required it's logged and left for you to resolve via the explicit
-full-upload/download endpoints, so there's no silent data loss.
+sync on that cadence in the background. By default auto-sync never performs a full
+sync on its own — if one is required it's logged and left for you to resolve via the
+explicit full-upload/download endpoints, so there's no silent data loss. Set
+`ANKI_API_AUTOSYNC_FULL=download` to opt a **downstream-replica** deployment into
+auto-resolving by full-**download** (adopting the server) — but only when this
+collection holds no un-synced schema change of its own, so nothing local-only is
+discarded; a local `.colpkg` backup is taken first and `ANKI_API_AUTOSYNC_NOTIFY_CMD`
+(if set) is invoked. Auto-**upload** is never done automatically.
 
 ## Limitations
 

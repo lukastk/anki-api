@@ -29,7 +29,11 @@ Sync (all optional, see `config.py`): `ANKI_API_SYNC_AUTH_PATH` (persisted auth
 token; defaults next to the collection), `ANKI_API_SYNC_USERNAME`,
 `ANKI_API_SYNC_PASSWORD`, `ANKI_API_SYNC_ENDPOINT` (self-hosted sync server; unset
 → AnkiWeb), `ANKI_API_AUTOSYNC_INTERVAL` (seconds between background syncs; `0`
-disables).
+disables), `ANKI_API_AUTOSYNC_FULL` (`off` default / `download` — the loop's policy
+for a *required* full sync; `download` auto-adopts the server only when this
+collection has no un-synced schema change, and never auto-uploads; for
+downstream-replica deployments), `ANKI_API_AUTOSYNC_NOTIFY_CMD` (best-effort
+`<cmd> <title> <body>` notifier on auto-resolve / blocked).
 
 ## Architecture & invariants (do not break these)
 

@@ -17,6 +17,7 @@ import glob
 import logging
 import os
 import shutil
+import subprocess
 import time
 
 from anki import sync_pb2
@@ -85,17 +86,98 @@ def _incremental_sync(handle: CollectionHandle, sync_media: bool) -> dict:
     }
 
 
+def _autosync_full_action(required: str, schema_changed: bool, policy: str) -> str:
+    """Decide what the autosync loop does about a REQUIRED full sync.
+
+    Returns "download" (safe to adopt the server) or "blocked" (leave it for a
+    deliberate manual /sync/full-{upload,download}). Download is chosen only when
+    the policy allows it AND the *server* — not this collection — is the side that
+    is ahead: a `full_upload` requirement (this side's schema is ahead) and any
+    local `schema_changed` (which includes the never-synced state) are always left
+    for a manual call, so no local-only schema change is ever silently discarded.
+    """
+    if policy == "download" and not schema_changed and required in ("full_download", "full_sync"):
+        return "download"
+    return "blocked"
+
+
+def _local_backup(handle: CollectionHandle) -> None:
+    """Best-effort .colpkg backup of the live collection before an automatic
+    overwrite (possession, not inference — mirrors POST /collection/backup). A
+    failure is logged, not fatal: the overwrite still proceeds (the local state is
+    also covered by the host's own backups, and — for a replica — re-derivable)."""
+    try:
+        with handle.locked() as col:
+            folder = os.path.join(os.path.dirname(handle.path), "backups")
+            os.makedirs(folder, exist_ok=True)
+            col.create_backup(backup_folder=folder, force=True, wait_for_completion=True)
+    except Exception as e:  # noqa: BLE001 - backup must never block the sync loop
+        log.warning("autosync: pre-download backup failed: %s (proceeding)", e)
+
+
+def _notify(handle: CollectionHandle, title: str, body: str) -> None:
+    """Run the configured notifier as `<cmd> <title> <body>` (argv, never a shell
+    string). Best-effort — a notifier must never break the sync loop."""
+    cmd = handle.settings.autosync_notify_cmd
+    if not cmd:
+        return
+    try:
+        subprocess.run([cmd, title, body], timeout=15, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:  # noqa: BLE001
+        log.warning("autosync: notify command failed: %s", e)
+
+
 def run_autosync(handle: CollectionHandle) -> dict:
     """One autosync tick (called from the background loop in app.py).
 
     Logs in from configured credentials if needed, then runs an incremental sync.
-    A required full sync is reported and left alone (no silent data loss)."""
+    If a full sync is REQUIRED, the ANKI_API_AUTOSYNC_FULL policy decides: "off"
+    (default) logs it and leaves the direction for a manual call — no silent data
+    loss; "download" auto-resolves by adopting the server when that is safe (see
+    _autosync_full_action), taking a local backup first. Auto-resolution and
+    blocked states fire the optional notifier once per transition (never per tick).
+    """
     if not handle.ensure_logged_in():
         return {"skipped": "not logged in"}
     result = _incremental_sync(handle, sync_media=True)
-    if result["required"] not in ("no_changes", "normal_sync"):
-        log.warning("autosync: full sync required (%s); resolve direction manually "
-                    "via /sync/full-upload or /sync/full-download", result["required"])
+    required = result["required"]
+    if required in ("no_changes", "normal_sync"):
+        handle.autosync_last_required = required  # clear any prior alert state
+        return result
+
+    # A full sync is required. Read whether THIS collection has an un-synced schema
+    # change of its own (scm > ls — same fact GET /sync/health exposes).
+    with handle.locked() as col:
+        schema_changed = col.db.scalar("select scm from col") > col.db.scalar("select ls from col")
+    action = _autosync_full_action(required, schema_changed, handle.settings.autosync_full)
+    is_transition = handle.autosync_last_required != required
+    handle.autosync_last_required = required
+
+    if action == "download":
+        log.warning("autosync: full sync required (%s); AUTOSYNC_FULL=download → "
+                    "backing up locally, then full-downloading from the server", required)
+        _local_backup(handle)
+        _perform_full_download(handle)
+        try:
+            required = _incremental_sync(handle, sync_media=True)["required"]
+        except Exception as e:  # noqa: BLE001 - the download already succeeded
+            log.warning("autosync: post-download sync failed: %s", e)
+            required = "no_changes"
+        handle.autosync_last_required = required
+        _notify(handle, "anki-api: auto-resolved a full sync",
+                "Adopted the server via full-download; the local collection now "
+                "matches AnkiWeb.")
+        return {"required": required, "resolved": "full_download"}
+
+    log.warning("autosync: full sync required (%s), NOT auto-resolved "
+                "(AUTOSYNC_FULL=%s, schema_changed=%s); resolve the direction via "
+                "/sync/full-upload or /sync/full-download", required,
+                handle.settings.autosync_full, schema_changed)
+    if is_transition:
+        _notify(handle, "anki-api: full sync needs a manual decision",
+                f"Sync is blocked needing a full {required}; resolve the direction "
+                "via /sync/full-upload or /sync/full-download.")
     return result
 
 
@@ -165,14 +247,20 @@ def full_upload(handle: CollectionHandle = Depends(get_handle)) -> dict:
     return {"ok": True, "direction": "upload"}
 
 
-@router.post("/full-download")
-def full_download(handle: CollectionHandle = Depends(get_handle)) -> dict:
-    """Overwrite this collection with the server's (full download)."""
+def _perform_full_download(handle: CollectionHandle) -> None:
+    """Overwrite this collection with the server's. Shared by the endpoint and the
+    autosync loop; the caller decides *when* it is appropriate."""
     auth = _auth(handle)
     with handle.locked() as col:
         col.close_for_full_sync()
         col.full_upload_or_download(auth=auth, server_usn=handle.server_media_usn, upload=False)
         col.reopen(after_full_sync=True)
+
+
+@router.post("/full-download")
+def full_download(handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Overwrite this collection with the server's (full download)."""
+    _perform_full_download(handle)
     return {"ok": True, "direction": "download"}
 
 
