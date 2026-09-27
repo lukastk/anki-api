@@ -19,7 +19,7 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/cards/actions/suspend` |  |
 | `POST` | `/v1/cards/actions/unbury` |  |
 | `POST` | `/v1/cards/actions/unsuspend` |  |
-| `POST` | `/v1/cards/views` | Bulk card views for a card-id selection, with each card's first_review/latest_review (epoch seconds, null when never reviewed). |
+| `POST` | `/v1/cards/views` | Bulk card views for a card-id selection, with each card's first_review/latest_review (epoch seconds as JSON integers, null when never reviewed; `/v1/stats/card/{id}` reports the same values as strings — protobuf int64 — so compare as numbers). |
 | `GET` | `/v1/cards/{card_id}` | One card's view — the same shape as an element of POST /cards/views, first_review/latest_review included. |
 | `PATCH` | `/v1/cards/{card_id}` | Write scheduling columns directly (mutate-then-update_card). Meant for |
 | `GET` | `/v1/cards/{card_id}/stats` | The fully-rendered Card Info HTML that desktop/AnkiDroid show. |
