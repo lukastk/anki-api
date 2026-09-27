@@ -1,5 +1,7 @@
 import pytest
 
+from anki_api.routers import cards as cards_router
+
 
 @pytest.fixture
 def card_id(api):
@@ -84,3 +86,66 @@ def test_scheduling_restore_recipe(api, card_id):
     assert card["type"] == 2  # review card now
     assert card["interval"] == 17
     assert card["factor"] == 2350
+
+
+# --- first_review / latest_review on the views (the bulk replacement for /stats/card/{id}) ---
+
+def _answer(api, deck: str, card_id: str, rating: str = "good") -> None:
+    nxt = api.get("/review/next", params={"deck": deck}).json()
+    assert nxt["card_id"] == card_id
+    r = api.post("/review/answer", json={"card_id": card_id, "rating": rating, "review_token": nxt["review_token"]})
+    assert r.status_code == 200, r.text
+
+
+def test_views_carry_first_and_latest_review_matching_card_stats(api):
+    """`first_review` / `latest_review` on every card view: the epoch seconds of the card's
+    first and last revlog row, null when it has none — the same numbers /stats/card/{id}
+    reports (which serialises them as strings, protobuf int64), so a caller replaying the
+    order a learner met hundreds of cards needs one request instead of one per card."""
+    studied = api.make_note(deck="Studied", front="q1")["card_ids"][0]
+    fresh = api.make_note(deck="Fresh", front="q2")["card_ids"][0]
+    _answer(api, "Studied", studied)
+
+    views = {v["id"]: v for v in api.post("/cards/views", json={"card_ids": [studied, fresh]}).json()}
+    stats = api.get(f"/stats/card/{studied}").json()
+    assert isinstance(views[studied]["first_review"], int)
+    assert views[studied]["first_review"] == int(stats["first_review"])
+    assert views[studied]["latest_review"] == int(stats["latest_review"])
+    assert views[studied]["first_review"] <= views[studied]["latest_review"]
+
+    assert views[fresh]["first_review"] is None and views[fresh]["latest_review"] is None
+    assert "first_review" not in api.get(f"/stats/card/{fresh}").json()  # card info: absent, not zero
+
+    # the single-card view is the same shape
+    single = api.get(f"/cards/{studied}").json()
+    assert single["first_review"] == views[studied]["first_review"]
+    assert single["latest_review"] == views[studied]["latest_review"]
+    assert api.get(f"/cards/{fresh}").json()["first_review"] is None
+
+
+def test_a_manual_revlog_row_counts_as_the_first_review_as_card_stats_counts_it(api):
+    """set-due-date on a never-answered card writes a MANUAL revlog row (type 4), and Anki's
+    card info dates `first_review` from it while `reviews` stays 0. The view follows card info
+    rather than second-guessing it; `reps` is what says whether the learner has answered."""
+    card_id = api.make_note(deck="Restored")["card_ids"][0]
+    api.post("/review/set-due-date", json={"card_ids": [card_id], "days": "5!"})
+    view = api.get(f"/cards/{card_id}").json()
+    stats = api.get(f"/stats/card/{card_id}").json()
+    assert view["reps"] == 0 and stats.get("reviews", 0) == 0
+    assert view["first_review"] is not None
+    assert view["first_review"] == int(stats["first_review"])
+    assert view["latest_review"] == int(stats["latest_review"])
+
+
+def test_bulk_views_join_the_revlog_across_chunks(api, monkeypatch):
+    """The revlog is read in chunks of ids; every card must land in its own view whatever
+    chunk it falls in, and cards without rows stay null. Chunk size forced to 2 for 3 cards."""
+    monkeypatch.setattr(cards_router, "REVLOG_BOUNDS_CHUNK", 2)
+    ids = [api.make_note(deck=f"C{i}", front=f"q{i}")["card_ids"][0] for i in range(3)]
+    _answer(api, "C0", ids[0])
+    _answer(api, "C2", ids[2])
+    views = api.post("/cards/views", json={"card_ids": ids}).json()
+    assert [v["id"] for v in views] == ids
+    assert views[0]["first_review"] == int(api.get(f"/stats/card/{ids[0]}").json()["first_review"])
+    assert views[1]["first_review"] is None
+    assert views[2]["first_review"] == int(api.get(f"/stats/card/{ids[2]}").json()["first_review"])
