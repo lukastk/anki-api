@@ -10,6 +10,9 @@ import os
 import tempfile
 
 from anki import import_export_pb2 as ie
+# all from anki.collection: importing anki.cards or anki.decks first trips a circular
+# import inside the anki package, and collection re-exports the id NewTypes anyway
+from anki.collection import CardId, CardIdsLimit, DeckId, DeckIdLimit, NoteId, NoteIdsLimit
 from google.protobuf.json_format import MessageToDict
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -57,21 +60,30 @@ class ImportApkgOptions(BaseModel):
     with_deck_configs: bool = False
 
 
-def _build_limit(limit: ExportLimit) -> ie.ExportLimit:
-    out = ie.ExportLimit()
+def _build_limit(limit: ExportLimit) -> DeckIdLimit | NoteIdsLimit | CardIdsLimit | None:
+    """The limit Anki's exporters take — one of its WRAPPER types, or None for the whole
+    collection.
+
+    Not the `ie.ExportLimit` protobuf, which is what this returned until 2026-10-01 and
+    which silently exported everything. `Collection.export_anki_package` passes whatever it
+    is given through `anki.collection.pb_export_limit`, and that dispatches on
+    `isinstance(limit, DeckIdLimit | NoteIdsLimit | CardIdsLimit)` and falls through to
+    `whole_collection` for anything else — including a ready-made protobuf of exactly the
+    right shape. So every scoped export returned the entire collection and still answered
+    200 with a valid .apkg. Asking for one 30-card deck of a 1032-card collection returned
+    all 1032.
+    """
     if limit.scope == "collection":
-        out.whole_collection.SetInParent()  # Empty presence marker
-    elif limit.scope == "deck":
+        return None
+    if limit.scope == "deck":
         if limit.deck_id is None:
             raise HTTPException(status_code=422, detail="deck_id required for scope=deck")
-        out.deck_id = parse_id(limit.deck_id)
-    elif limit.scope == "notes":
-        out.note_ids.note_ids.extend(parse_ids(limit.ids or []))
-    elif limit.scope == "cards":
-        out.card_ids.cids.extend(parse_ids(limit.ids or []))
-    else:
-        raise HTTPException(status_code=422, detail=f"unknown export scope {limit.scope!r}")
-    return out
+        return DeckIdLimit(DeckId(parse_id(limit.deck_id)))
+    if limit.scope == "notes":
+        return NoteIdsLimit([NoteId(i) for i in parse_ids(limit.ids or [])])
+    if limit.scope == "cards":
+        return CardIdsLimit([CardId(i) for i in parse_ids(limit.ids or [])])
+    raise HTTPException(status_code=422, detail=f"unknown export scope {limit.scope!r}")
 
 
 def _tempfile(suffix: str) -> str:
