@@ -9,6 +9,7 @@ from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id, parse_ids
 from ..schemas.common import Mutation, mutation
+from .deck_presets import preset_or_404
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
@@ -97,12 +98,16 @@ def get_deck_preset(deck_id: str, handle: CollectionHandle = Depends(get_handle)
 
 @router.post("/{deck_id}/preset")
 def assign_deck_preset(deck_id: str, body: AssignPreset, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Assign an existing deck-options preset to this deck (404 if either does not exist)."""
     did = parse_id(deck_id)
     with handle.locked() as col:
         deck = col.decks.get_legacy(did)
         if deck is None:
             raise HTTPException(status_code=404, detail=f"deck {deck_id} not found")
-        col.decks.set_config_id_for_deck_dict(deck, parse_id(body.preset_id))
+        # anki stores whatever id it is given, and a deck pointing at a preset that does not
+        # exist then studies with the Default one
+        preset = preset_or_404(col, parse_id(body.preset_id))
+        col.decks.set_config_id_for_deck_dict(deck, preset["id"])
         return mutation(col.decks.update_dict(deck))
 
 
@@ -129,7 +134,12 @@ def reparent_decks(body: Reparent, handle: CollectionHandle = Depends(get_handle
 
 @router.delete("/{deck_id}")
 def delete_deck(deck_id: str, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Delete the deck and its cards; `count` is the number of cards removed (404 if there is no such deck)."""
     did = parse_id(deck_id)
     with handle.locked() as col:
+        # removing an unknown id is a no-op with count 0 — which is also what removing an
+        # empty deck reports
+        if col.decks.get_legacy(did) is None:
+            raise HTTPException(status_code=404, detail=f"deck {deck_id} not found")
         out = col.decks.remove([did])
         return mutation(out.changes, count=out.count)

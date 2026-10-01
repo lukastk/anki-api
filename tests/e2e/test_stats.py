@@ -9,9 +9,14 @@ def test_graphs_returns_all_sections(api):
         assert key in g, key
 
 
-def test_graphs_accepts_search(api):
+def test_graphs_are_computed_over_the_search(api):
     api.make_note(deck="Filtered", front="a")
-    assert api.get("/stats/graphs", params={"search": "deck:Filtered", "days": 30}).status_code == 200
+    for i in range(2):
+        api.make_note(deck="Elsewhere", front=f"b{i}")
+    new_cards = lambda **params: api.get("/stats/graphs", params={"days": 30, **params}).json()[  # noqa: E731
+        "card_counts"]["including_inactive"]["newCards"]
+    assert new_cards() == 3
+    assert new_cards(search="deck:Filtered") == 1
 
 
 def test_today_summary(api):
@@ -32,3 +37,11 @@ def test_graph_preferences_roundtrip(api):
     updated = api.put("/stats/graph-preferences", json={"future_due_show_backlog": False}).json()
     # MessageToDict omits false-valued bools; absence means it was set to false
     assert updated.get("future_due_show_backlog", False) is False
+
+
+def test_graph_preferences_unknown_field_is_422(api):
+    before = api.get("/stats/graph-preferences").json()
+    resp = api.put("/stats/graph-preferences", json={"future_due_show_backlogg": False})
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "invalid_body"
+    assert api.get("/stats/graph-preferences").json() == before

@@ -71,8 +71,13 @@ def create_note(body: CreateNote, handle: CollectionHandle = Depends(get_handle)
 
 @router.get("/find-duplicates")
 def find_duplicates(field: str, search: str = "", handle: CollectionHandle = Depends(get_handle)) -> list[dict]:
-    """Notes sharing the same value in `field` (Notes > Find Duplicates)."""
+    """Notes sharing the same value in `field` (Notes > Find Duplicates). 404 if no notetype has a field of that name."""
     with handle.locked() as col:
+        # anki matches the name case-insensitively, and answers "no duplicates" for a field
+        # that does not exist anywhere
+        wanted = field.lower()
+        if not any(f["name"].lower() == wanted for nt in col.models.all() for f in nt["flds"]):
+            raise HTTPException(status_code=404, detail=f"no notetype has a field named {field!r}")
         return [
             {"value": value, "note_ids": [str(nid) for nid in nids]}
             for value, nids in col.find_dupes(field, search)

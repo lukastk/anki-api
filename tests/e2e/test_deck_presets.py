@@ -76,3 +76,15 @@ def test_deck_preset_get_and_assign(api):
     assert resp.status_code == 200
     # the assignment persists (anki reports no view-refresh flags for a conf-only change)
     assert api.get(f"/decks/{did}/preset").json()["name"] == "ForDeck"
+
+
+def test_assign_unknown_preset_is_404_and_leaves_the_deck_alone(api):
+    """Used to answer 200 and store the dangling preset id on the deck, which then quietly
+    studied with the Default preset."""
+    did = api.make_deck("Studyish")
+    pid = api.post("/deck-presets", json={"name": "ForDeck"}).json()["id"]
+    api.post(f"/decks/{did}/preset", json={"preset_id": pid})
+
+    assert api.post(f"/decks/{did}/preset", json={"preset_id": "999999"}).status_code == 404
+    assert api.get(f"/decks/{did}").json()["config_id"] == pid
+    assert api.get(f"/decks/{did}/preset").json()["name"] == "ForDeck"

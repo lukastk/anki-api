@@ -111,10 +111,25 @@ def test_set_sort_field_index(api):
     assert api.get(f"/notetypes/{nid}").json()["sort_field_index"] == 1
 
 
+def test_set_sort_field_index_out_of_range_is_422_and_changes_nothing(api):
+    """Used to be a 500 — and the name/css in the same PATCH, already applied to anki's
+    cached notetype, were then served by GET without ever having been saved."""
+    nid = api.post("/notetypes", json={"name": "Sorted"}).json()["id"]
+    resp = api.patch(f"/notetypes/{nid}", json={"name": "Renamed", "sort_field_index": 2})
+    assert resp.status_code == 422
+    nt = api.get(f"/notetypes/{nid}").json()
+    assert (nt["name"], nt["sort_field_index"]) == ("Sorted", 0)
+
+
 def test_delete(api):
     nid = api.post("/notetypes", json={"name": "Doomed"}).json()["id"]
     assert api.delete(f"/notetypes/{nid}").status_code == 200
     assert api.get(f"/notetypes/{nid}").status_code == 404
+
+
+def test_delete_unknown_is_404(api):
+    """Used to answer 200 with an all-false change set."""
+    assert api.delete("/notetypes/123456").status_code == 404
 
 
 # --- fields ---
@@ -228,3 +243,15 @@ def test_change_notetype_remaps_and_regenerates_cards(api):
     refetched = api.get(f"/notes/{note['id']}").json()
     assert refetched["notetype"] == "Basic (and reversed card)"
     assert len(refetched["card_ids"]) == 2  # reversed card generated
+
+
+def test_change_notetype_applies_an_explicit_field_map(api):
+    """`new_fields[i]` is the OLD field that fills new field i; the default map is the
+    identity, so only a non-identity map shows the map is used at all."""
+    note = api.make_note(deck="D", front="was-front", back="was-back")
+    old = _id_by_name(api, "Basic")
+    new = _id_by_name(api, "Basic (and reversed card)")
+    api.post("/notetypes/change", json={
+        "note_ids": [note["id"]], "old_notetype_id": old, "new_notetype_id": new, "new_fields": [1, 0],
+    })
+    assert api.get(f"/notes/{note['id']}").json()["fields"] == {"Front": "was-back", "Back": "was-front"}

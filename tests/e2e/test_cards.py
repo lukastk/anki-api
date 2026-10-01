@@ -41,7 +41,11 @@ def test_suspend_unsuspend(api, card_id):
 def test_bury_unbury(api, card_id):
     out = api.post("/cards/actions/bury", json={"card_ids": [card_id]}).json()
     assert out["count"] == 1
-    api.post("/cards/actions/unbury", json={"card_ids": [card_id]})  # must not error
+    assert api.get(f"/cards/{card_id}").json()["queue"] == -3  # user-buried
+    resp = api.post("/cards/actions/unbury", json={"card_ids": [card_id]})
+    assert resp.status_code == 200
+    assert resp.json()["changes"]["card"] is True
+    assert api.get(f"/cards/{card_id}").json()["queue"] == 0  # back in the new queue
 
 
 def test_set_deck(api, card_id):

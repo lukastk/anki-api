@@ -9,8 +9,10 @@ columns (configurable like the desktop browser), produced by browser_row_for_id.
 
 from __future__ import annotations
 
-from anki.collection import BrowserConfig
-from fastapi import APIRouter, Depends
+from typing import Literal
+
+from anki.collection import BrowserColumns, BrowserConfig
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
@@ -21,9 +23,13 @@ from ..schemas.common import mutation
 router = APIRouter(tags=["search"])
 
 
+BrowserMode = Literal["cards", "notes"]
+
+
 class Search(BaseModel):
     query: str
-    reverse: bool = False
+    order: str | None = None  # a sortable column key from GET /browser/columns; null = unsorted
+    reverse: bool = False  # reverse `order` (meaningless, and refused, without one)
 
 
 class BrowserRows(BaseModel):
@@ -32,7 +38,7 @@ class BrowserRows(BaseModel):
 
 class ActiveColumns(BaseModel):
     columns: list[str]
-    mode: str = "cards"
+    mode: BrowserMode = "cards"
 
 
 class FindReplace(BaseModel):
@@ -44,17 +50,40 @@ class FindReplace(BaseModel):
     field_name: str | None = None
 
 
+def _sort_order(col, body: Search, mode: BrowserMode) -> BrowserColumns.Column | Literal[False]:
+    """The `order` argument for `find_cards` / `find_notes`: the browser column to sort by,
+    or False for an unsorted search. 422 for an order the backend cannot honour.
+
+    The check is here because Anki's `_build_sort_mode` does not make it: handed a column
+    that is not sortable (or anything else it does not recognise) it prints "is not a valid
+    sort order" and searches UNSORTED. And `reverse` only ever reverses an order — with
+    none, the backend never sees it; this endpoint used to accept it and do nothing."""
+    if body.order is None:
+        if body.reverse:
+            raise HTTPException(status_code=422, detail="reverse needs an order to reverse; pass a sortable column key as `order`")
+        return False
+    column = col.get_browser_column(body.order)
+    if column is None:
+        raise HTTPException(status_code=422, detail=f"unknown browser column {body.order!r}; see GET /browser/columns")
+    sorting = column.sorting_cards if mode == "cards" else column.sorting_notes
+    if sorting == BrowserColumns.SORTING_NONE:
+        raise HTTPException(status_code=422, detail=f"browser column {body.order!r} is not sortable in {mode} mode")
+    return column
+
+
 @router.post("/search/cards")
 def search_cards(body: Search, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Card ids matching the Anki search `query`, sorted by the browser column `order` if given (`reverse` flips it), unsorted otherwise."""
     with handle.locked() as col:
-        ids = col.find_cards(body.query, reverse=body.reverse)
+        ids = col.find_cards(body.query, order=_sort_order(col, body, "cards"), reverse=body.reverse)
         return {"card_ids": [str(i) for i in ids], "count": len(ids)}
 
 
 @router.post("/search/notes")
 def search_notes(body: Search, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Note ids matching the Anki search `query`, sorted by the browser column `order` if given (`reverse` flips it), unsorted otherwise."""
     with handle.locked() as col:
-        ids = col.find_notes(body.query, reverse=body.reverse)
+        ids = col.find_notes(body.query, order=_sort_order(col, body, "notes"), reverse=body.reverse)
         return {"note_ids": [str(i) for i in ids], "count": len(ids)}
 
 
@@ -75,7 +104,8 @@ def browser_columns(handle: CollectionHandle = Depends(get_handle)) -> list[dict
 
 
 @router.get("/browser/active-columns")
-def get_active_columns(mode: str = "cards", handle: CollectionHandle = Depends(get_handle)) -> dict:
+def get_active_columns(mode: BrowserMode = "cards", handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """The active browser columns for `mode` (cards | notes)."""
     with handle.locked() as col:
         cols = col.load_browser_card_columns() if mode == "cards" else col.load_browser_note_columns()
         return {"mode": mode, "columns": list(cols)}
@@ -83,8 +113,13 @@ def get_active_columns(mode: str = "cards", handle: CollectionHandle = Depends(g
 
 @router.put("/browser/active-columns")
 def set_active_columns(body: ActiveColumns, handle: CollectionHandle = Depends(get_handle)) -> dict:
-    """Persist the active columns for the given mode (stored in collection config)."""
+    """Persist the active columns for the given mode (stored in collection config). 422 for a key that is not a browser column."""
     with handle.locked() as col:
+        known = {c.key for c in col.all_browser_columns()}
+        unknown = [key for key in body.columns if key not in known]
+        if unknown:
+            # stored as given, an unknown key renders as an empty cell in every row
+            raise HTTPException(status_code=422, detail=f"unknown browser columns {unknown}; see GET /browser/columns")
         if body.mode == "cards":
             col.set_config(BrowserConfig.ACTIVE_CARD_COLUMNS_KEY, body.columns)
             cols = col.load_browser_card_columns()

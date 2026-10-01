@@ -9,6 +9,7 @@ from __future__ import annotations
 from anki import errors as anki_errors
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from google.protobuf.json_format import ParseError
 
 
 class CollectionUnavailable(RuntimeError):
@@ -53,6 +54,12 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(anki_errors.DBError)
     async def _db(_: Request, exc: anki_errors.DBError) -> JSONResponse:
         return JSONResponse(status_code=409, content=_error_body("collection_busy", str(exc)))
+
+    # A JSON body that does not fit the protobuf it is parsed into (PUT /preferences,
+    # PUT /stats/graph-preferences): an unknown field name or a wrong value type.
+    @app.exception_handler(ParseError)
+    async def _proto_body(_: Request, exc: ParseError) -> JSONResponse:
+        return JSONResponse(status_code=422, content=_error_body("invalid_body", str(exc)))
 
     # AbortSchemaModification is NOT a BackendError subclass, so it needs its own
     # handler (raised when a schema-modifying op would force a full sync).

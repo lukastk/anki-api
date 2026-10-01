@@ -186,6 +186,10 @@ def patch_notetype(notetype_id: str, body: PatchNotetype, handle: CollectionHand
     nid = parse_id(notetype_id)
     with handle.locked() as col:
         nt = _get(col, nid)
+        # checked before anything is applied: `nt` is anki's cached dict, so a PATCH that
+        # set the name and then failed here would leave the unsaved name in the cache
+        if body.sort_field_index is not None and not 0 <= body.sort_field_index < len(nt["flds"]):
+            raise HTTPException(status_code=422, detail=f"sort_field_index must be within 0..{len(nt['flds']) - 1}")
         if body.name is not None:
             nt["name"] = body.name
         if body.css is not None:
@@ -199,6 +203,7 @@ def patch_notetype(notetype_id: str, body: PatchNotetype, handle: CollectionHand
 def delete_notetype(notetype_id: str, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
     nid = parse_id(notetype_id)
     with handle.locked() as col:
+        _get(col, nid)  # 404 if missing; anki removes an unknown id without complaint
         return mutation(col.models.remove(nid))
 
 

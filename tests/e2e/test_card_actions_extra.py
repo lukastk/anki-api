@@ -30,3 +30,8 @@ def test_reposition_new_cards(api):
 def test_help_link(api):
     out = api.get("/help/link", params={"page": 0}).json()
     assert out["url"].startswith("http")
+
+
+def test_help_link_unknown_page_is_422(api):
+    """An index outside anki's HelpPage enum used to resolve to the manual's front page."""
+    assert api.get("/help/link", params={"page": 9999}).status_code == 422

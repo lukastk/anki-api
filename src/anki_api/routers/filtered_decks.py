@@ -7,7 +7,7 @@ deck for extra new/review/ahead/preview sessions.
 
 from __future__ import annotations
 
-from anki import scheduler_pb2
+from anki import decks_pb2, scheduler_pb2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -27,11 +27,17 @@ _CUSTOM_STUDY_FIELDS = {
 }
 
 
+_ORDERS = decks_pb2.Deck.Filtered.SearchTerm.Order
+
+
 class CreateFiltered(BaseModel):
     name: str
     search: str
     limit: int = 100
-    order: int = 0  # SortOrder enum index (0 = order added)
+    # index into anki's filtered-deck orders: 0 oldest reviewed first, 1 random, 2 intervals
+    # ascending, 3 intervals descending, 4 lapses, 5 added, 6 due, 7 reverse added,
+    # 8 retrievability ascending, 9 retrievability descending
+    order: int = 0
 
 
 class CustomStudy(BaseModel):
@@ -42,6 +48,9 @@ class CustomStudy(BaseModel):
 
 @router.post("")
 def create_filtered(body: CreateFiltered, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Create a filtered deck gathering up to `limit` cards matching `search`, in `order` (0-9, anki's filtered-deck orders)."""
+    if body.order not in _ORDERS.values():
+        raise HTTPException(status_code=422, detail=f"order must be one of {sorted(_ORDERS.values())} ({', '.join(_ORDERS.keys())})")
     with handle.locked() as col:
         fid = col.decks.new_filtered(body.name)
         deck = col.decks.get(fid)

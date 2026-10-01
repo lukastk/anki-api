@@ -20,6 +20,26 @@ def test_tree_includes_hierarchy_with_counts(api):
     assert {"new_count", "learn_count", "review_count"} <= set(parent.keys())
 
 
+def test_tree_counts_the_cards(api):
+    for i in range(3):
+        api.make_note(deck="Counted::Sub", front=f"q{i}")
+    api.make_note(deck="Counted", front="top")
+    tree = api.get("/decks/tree").json()
+    parent = next(c for c in tree["children"] if c["name"] == "Counted")
+    child = next(c for c in parent["children"] if c["name"] == "Sub")
+    assert (child["new_count"], child["total_in_deck"]) == (3, 3)
+    assert (parent["new_count"], parent["total_in_deck"], parent["total_including_children"]) == (4, 1, 4)
+
+
+def test_list_flags_filter_the_list(api):
+    api.make_note(deck="Src", front="q")
+    api.post("/filtered-decks", json={"name": "Filt", "search": "deck:Src"})
+    names = lambda **params: {d["name"] for d in api.get("/decks", params=params).json()}  # noqa: E731
+    assert names() == {"Default", "Src", "Filt"}
+    assert names(include_filtered=False) == {"Default", "Src"}
+    assert names(skip_empty_default=True) == {"Src", "Filt"}
+
+
 def test_rename(api):
     did = api.make_deck("Old")
     out = api.post(f"/decks/{did}/rename", json={"name": "New"}).json()
@@ -42,3 +62,8 @@ def test_delete(api):
     # OpChangesWithCount.count reflects cards removed (0 for an empty deck), not decks.
     assert "count" in out.json()
     assert api.get(f"/decks/{did}").status_code == 404
+
+
+def test_delete_unknown_deck_is_404(api):
+    """Used to answer 200 with count 0 — which is also what deleting an empty deck answers."""
+    assert api.delete("/decks/123456").status_code == 404

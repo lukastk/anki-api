@@ -34,3 +34,11 @@ def test_media_check(api):
     out = api.get("/media/check").json()
     assert {"unused", "missing", "report", "have_trash"} <= set(out)
     assert isinstance(out["unused"], list)
+
+
+def test_media_check_reports_unused_and_missing_files(api):
+    api.post("/media/files", json={"filename": "orphan.png", "data_base64": base64.b64encode(b"x").decode()})
+    api.make_note(deck="D", front='<img src="ghost.png">')
+    out = api.get("/media/check").json()
+    assert out["unused"] == ["orphan.png"]
+    assert out["missing"] == ["ghost.png"]

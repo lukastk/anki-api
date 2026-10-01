@@ -7,7 +7,7 @@ rather than reimplementing them divergently.
 
 from __future__ import annotations
 
-from anki import i18n_pb2
+from anki import i18n_pb2, links_pb2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -51,6 +51,10 @@ def render_markdown(body: RenderMarkdown, handle: CollectionHandle = Depends(get
 @router.get("/help/link")
 def help_link(page: int, handle: CollectionHandle = Depends(get_handle)) -> dict:
     """Resolve a HelpPage enum index to its versioned Anki-manual URL (for the
-    contextual Help buttons a full client shows on dialogs)."""
+    contextual Help buttons a full client shows on dialogs). 422 for an index outside
+    the enum."""
+    # the backend resolves an index it does not know to the manual's front page
+    if page not in links_pb2.HelpPageLinkRequest.HelpPage.values():
+        raise HTTPException(status_code=422, detail=f"page must be a HelpPage index (0..{max(links_pb2.HelpPageLinkRequest.HelpPage.values())})")
     with handle.locked() as col:
         return {"url": col._backend.help_page_link(page)}

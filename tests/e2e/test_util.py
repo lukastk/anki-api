@@ -7,10 +7,12 @@ def test_format_timespan(api):
 
 
 def test_format_timespan_contexts(api):
-    # different contexts render differently; all must succeed
-    for ctx in ("precise", "answer_buttons", "intervals"):
-        r = api.post("/format/timespan", json={"seconds": 86400, "context": ctx})
-        assert r.status_code == 200
+    # different contexts render differently (the number is wrapped in bidi isolates)
+    text = lambda ctx: api.post("/format/timespan", json={"seconds": 86400, "context": ctx}).json()[  # noqa: E731
+        "text"].replace("\u2068", "").replace("\u2069", "")
+    assert text("answer_buttons") == "1d"
+    assert text("intervals") == "1 day"
+    assert text("precise") == "1 day"
 
 
 def test_format_timespan_bad_context_is_422(api):
@@ -28,8 +30,12 @@ def test_default_deck_for_notetype(api):
     api.make_note(deck="AssocDeck", front="a", back="b")
     nt_id = next(n["id"] for n in api.get("/notetypes").json() if n["name"] == "Basic")
     out = api.get(f"/notetypes/{nt_id}/default-deck").json()
-    # deck_id is null or a string id, never an int
-    assert out["deck_id"] is None or isinstance(out["deck_id"], str)
+    # with anki's default "new notes go to the current deck", there is no per-notetype deck
+    assert out == {"deck_id": None}
+    # switch that off and it is the deck last used with the notetype
+    api.put("/config/addToCur", json={"value": False})
+    assoc = next(d["id"] for d in api.get("/decks").json() if d["name"] == "AssocDeck")
+    assert api.get(f"/notetypes/{nt_id}/default-deck").json() == {"deck_id": assoc}
 
 
 def test_restore_buried_and_suspended(api):

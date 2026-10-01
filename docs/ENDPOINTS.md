@@ -43,17 +43,17 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/decks` |  |
 | `POST` | `/v1/decks/reparent` |  |
 | `GET` | `/v1/decks/tree` | Deck-browser tree with per-deck due/new/learn counts. |
-| `DELETE` | `/v1/decks/{deck_id}` |  |
+| `DELETE` | `/v1/decks/{deck_id}` | Delete the deck and its cards; `count` is the number of cards removed. 404 if there is no such deck. |
 | `GET` | `/v1/decks/{deck_id}` |  |
 | `GET` | `/v1/decks/{deck_id}/preset` | The effective deck-options preset (config group) for this deck. |
-| `POST` | `/v1/decks/{deck_id}/preset` |  |
+| `POST` | `/v1/decks/{deck_id}/preset` | Assign an existing deck-options preset to this deck. 404 if the deck or the preset does not exist. |
 | `POST` | `/v1/decks/{deck_id}/rename` |  |
 
 ## filtered-decks
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v1/filtered-decks` |  |
+| `POST` | `/v1/filtered-decks` | Create a filtered deck gathering up to `limit` cards matching `search`, in `order` — an index into Anki's filtered-deck orders (0 oldest reviewed first, 1 random, 2 intervals ascending, 3 intervals descending, 4 lapses, 5 added, 6 due, 7 reverse added, 8 retrievability ascending, 9 retrievability descending); 422 outside 0-9. |
 | `POST` | `/v1/filtered-decks/custom-study` |  |
 | `POST` | `/v1/filtered-decks/{deck_id}/empty` |  |
 | `POST` | `/v1/filtered-decks/{deck_id}/rebuild` |  |
@@ -80,11 +80,11 @@ at `/openapi.json`. All paths are under `/v1`.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/v1/export/apkg` |  |
-| `POST` | `/v1/export/cards-csv` |  |
-| `POST` | `/v1/export/notes-csv` |  |
+| `POST` | `/v1/export/apkg` | An .apkg of exactly what `limit` names: `{"scope": "collection"}` (the default), `{"scope": "deck", "deck_id": …}`, `{"scope": "notes", "ids": […]}` or `{"scope": "cards", "ids": […]}`. A limit that contradicts itself — a `deck_id` or `ids` that does not belong to the scope (including a `deck_id` with the scope left out), a missing one, an unknown key — is a 422, never a wider export; a deck, note or card id that does not exist is a 404 naming it. |
+| `POST` | `/v1/export/cards-csv` | A tab-separated question/answer export of exactly the cards `limit` names (same `limit`, 422 and 404 rules as `/v1/export/apkg`). |
+| `POST` | `/v1/export/notes-csv` | A tab-separated export of exactly the notes `limit` names (same `limit`, 422 and 404 rules as `/v1/export/apkg`). |
 | `POST` | `/v1/import/apkg` |  |
-| `POST` | `/v1/import/csv` | Import notes from a CSV using detected metadata, into the given deck + |
+| `POST` | `/v1/import/csv` | Import notes from a CSV using detected metadata, into the given deck + notetype (column order maps to the notetype's fields). 404 for a `deck_id` or `notetype_id` that does not exist. |
 | `POST` | `/v1/import/csv/metadata` | Detected metadata (delimiter, column count, html-ness) for an uploaded CSV, |
 
 ## media
@@ -101,7 +101,7 @@ at `/openapi.json`. All paths are under `/v1`.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/notes` |  |
-| `GET` | `/v1/notes/find-duplicates` | Notes sharing the same value in `field` (Notes > Find Duplicates). |
+| `GET` | `/v1/notes/find-duplicates` | Notes sharing the same value in `field` (Notes > Find Duplicates). 404 if no notetype has a field of that name (matched case-insensitively). |
 | `DELETE` | `/v1/notes/{note_id}` |  |
 | `GET` | `/v1/notes/{note_id}` |  |
 | `PUT` | `/v1/notes/{note_id}` |  |
@@ -116,9 +116,9 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/notetypes/change` |  |
 | `POST` | `/v1/notetypes/change-info` |  |
 | `GET` | `/v1/notetypes/stock` |  |
-| `DELETE` | `/v1/notetypes/{notetype_id}` |  |
+| `DELETE` | `/v1/notetypes/{notetype_id}` | Delete the notetype. 404 if there is no such notetype. |
 | `GET` | `/v1/notetypes/{notetype_id}` |  |
-| `PATCH` | `/v1/notetypes/{notetype_id}` |  |
+| `PATCH` | `/v1/notetypes/{notetype_id}` | Change `name`, `css` and/or `sort_field_index` (422 if the index is not one of the notetype's fields; nothing is applied). |
 | `POST` | `/v1/notetypes/{notetype_id}/clone` |  |
 | `GET` | `/v1/notetypes/{notetype_id}/default-deck` | The deck last used with this notetype (Add screen picks it on notetype switch). |
 | `POST` | `/v1/notetypes/{notetype_id}/fields` |  |
@@ -145,21 +145,21 @@ at `/openapi.json`. All paths are under `/v1`.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/review/answer` |  |
-| `GET` | `/v1/review/counts` |  |
-| `GET` | `/v1/review/next` | The next card due for review, or null if the queue is empty. |
+| `GET` | `/v1/review/counts` | Today's new/learn/review counts for the current deck, or for the deck named `deck`. 404 if there is no deck of that name (it is not created). |
+| `GET` | `/v1/review/next` | The next card due for review, or null if the queue is empty. 404 if `deck` names no deck (it is not created). |
 | `POST` | `/v1/review/set-due-date` |  |
 
 ## search
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/v1/browser/active-columns` |  |
-| `PUT` | `/v1/browser/active-columns` | Persist the active columns for the given mode (stored in collection config). |
+| `GET` | `/v1/browser/active-columns` | The active browser columns for `mode` (`cards`, the default, or `notes`; anything else is a 422). |
+| `PUT` | `/v1/browser/active-columns` | Persist the active columns for the given mode (stored in collection config). 422 for a `mode` other than `cards` / `notes`, or a key that is not a column of `GET /v1/browser/columns`. |
 | `GET` | `/v1/browser/columns` | All available browser columns, with their card/note-mode labels. |
 | `POST` | `/v1/browser/rows` | Rendered rows for a window of card ids, with cells aligned to the active |
-| `POST` | `/v1/search/cards` |  |
+| `POST` | `/v1/search/cards` | Card ids matching the Anki search `query`. Unsorted unless `order` names a browser column that is `sortable_cards` in `GET /v1/browser/columns`; `reverse` flips that order. 422 for an unknown or unsortable column, or for `reverse` without an `order`. |
 | `POST` | `/v1/search/find-replace` |  |
-| `POST` | `/v1/search/notes` |  |
+| `POST` | `/v1/search/notes` | Note ids matching the Anki search `query`. Unsorted unless `order` names a browser column that is `sortable_notes`; `reverse` flips that order. Same 422 rules as `/v1/search/cards`. |
 
 ## stats
 
@@ -238,5 +238,5 @@ at `/openapi.json`. All paths are under `/v1`.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/format/timespan` |  |
-| `GET` | `/v1/help/link` | Resolve a HelpPage enum index to its versioned Anki-manual URL (for the |
+| `GET` | `/v1/help/link` | Resolve a HelpPage enum index to its versioned Anki-manual URL (for the contextual Help buttons a full client shows on dialogs). 422 for an index outside the enum. |
 | `POST` | `/v1/render/markdown` |  |

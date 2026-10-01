@@ -29,6 +29,11 @@ def test_set_due_date(api):
     api.post("/review/answer", json={"card_id": card_id, "rating": "good", "review_token": nxt["review_token"]})
     out = api.post("/review/set-due-date", json={"card_ids": [card_id], "days": "3"}).json()
     assert out["changes"]["card"] is True
+    in_three = api.get(f"/cards/{card_id}").json()
+    assert (in_three["type"], in_three["queue"]) == (2, 2)  # a review card
+    # `due` of a review card is a day number; "0" is today, so "3" is three days later
+    api.post("/review/set-due-date", json={"card_ids": [card_id], "days": "0"})
+    assert in_three["due"] - api.get(f"/cards/{card_id}").json()["due"] == 3
 
 
 def test_answer_without_timer_field_still_works(api):
@@ -39,3 +44,15 @@ def test_answer_without_timer_field_still_works(api):
         "card_id": card_id, "rating": "again", "review_token": nxt["review_token"],
     })
     assert out.status_code == 200
+    assert api.get(f"/cards/{card_id}").json()["reps"] == 1  # the answer was recorded
+
+
+def test_unknown_deck_is_404_and_is_not_created(api):
+    """`deck=` names a deck to select. An unknown name used to CREATE that deck — on a GET —
+    and report an empty queue for it, so a typo both littered the collection and read as
+    "nothing due"."""
+    api.make_note(deck="Study")
+    decks_before = api.get("/decks").json()
+    assert api.get("/review/counts", params={"deck": "Stduy"}).status_code == 404
+    assert api.get("/review/next", params={"deck": "Stduy"}).status_code == 404
+    assert api.get("/decks").json() == decks_before

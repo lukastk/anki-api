@@ -4,7 +4,9 @@
 def test_compare_answer_returns_diff_html(api):
     out = api.post("/scheduler/compare-answer", json={"expected": "Paris", "provided": "Pari"}).json()
     assert "comparison_html" in out
-    assert "<" in out["comparison_html"]  # rendered colored diff markup
+    # rendered colored diff markup: what matched, and the letter that was missed
+    assert "<span class=typeGood>Pari</span>" in out["comparison_html"]
+    assert "<span class=typeMissed>s</span>" in out["comparison_html"]
 
 
 def test_compare_answer_exact_match(api):

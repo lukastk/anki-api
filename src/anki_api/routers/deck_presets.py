@@ -27,7 +27,7 @@ class CreatePreset(BaseModel):
     clone_from: str | None = None
 
 
-def _config(col, pid: int) -> dict:
+def preset_or_404(col, pid: int) -> dict:
     # NB: anki's get_config silently returns the Default preset for an unknown id,
     # so we detect "missing" by id mismatch and surface it loudly as a 404.
     cfg = col.decks.get_config(pid)
@@ -60,13 +60,13 @@ def list_presets(handle: CollectionHandle = Depends(get_handle)) -> list[dict]:
 def get_preset(preset_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
     pid = parse_id(preset_id)
     with handle.locked() as col:
-        return _view(_config(col, pid))
+        return _view(preset_or_404(col, pid))
 
 
 @router.post("")
 def create_preset(body: CreatePreset, handle: CollectionHandle = Depends(get_handle)) -> dict:
     with handle.locked() as col:
-        clone = _config(col, parse_id(body.clone_from)) if body.clone_from else None
+        clone = preset_or_404(col, parse_id(body.clone_from)) if body.clone_from else None
         pid = col.decks.add_config_returning_id(body.name, clone_from=clone)
         return {"id": str(pid)}
 
@@ -76,11 +76,11 @@ def update_preset(preset_id: str, body: dict[str, Any], handle: CollectionHandle
     """Merge a partial config into the preset (deep-merges nested new/rev/lapse)."""
     pid = parse_id(preset_id)
     with handle.locked() as col:
-        cfg = _config(col, pid)
+        cfg = preset_or_404(col, pid)
         patch = {k: v for k, v in body.items() if k != "id"}
         _deep_merge(cfg, patch)
         col.decks.update_config(cfg)
-        return _view(_config(col, pid))
+        return _view(preset_or_404(col, pid))
 
 
 @router.delete("/{preset_id}")
@@ -89,7 +89,7 @@ def delete_preset(preset_id: str, handle: CollectionHandle = Depends(get_handle)
     if pid == DEFAULT_PRESET_ID:
         raise HTTPException(status_code=422, detail="the default preset cannot be removed")
     with handle.locked() as col:
-        _config(col, pid)  # 404 if missing
+        preset_or_404(col, pid)  # 404 if missing
         col.decks.remove_config(pid)
         return {"ok": True}
 
@@ -98,6 +98,6 @@ def delete_preset(preset_id: str, handle: CollectionHandle = Depends(get_handle)
 def restore_defaults(preset_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
     pid = parse_id(preset_id)
     with handle.locked() as col:
-        cfg = _config(col, pid)
+        cfg = preset_or_404(col, pid)
         col.decks.restore_to_default(cfg)
-        return _view(_config(col, pid))
+        return _view(preset_or_404(col, pid))

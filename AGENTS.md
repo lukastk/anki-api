@@ -73,7 +73,11 @@ fixtures and a `V1Client` wrapper.
    `.venv/lib/python*/site-packages/anki/` (esp. `_backend_generated.py` for the
    full backend surface) or run `uv run python -c "..."`. Never invent method
    names; ground every call in what's actually there.
-2. Write the test in `tests/e2e/test_<domain>.py` (success + failure paths).
+2. Write the test in `tests/e2e/test_<domain>.py` (success + failure paths). **Assert on
+   the RESULT, not on the status code or the shape**: read the export back and count what
+   is in it, re-GET the thing a mutation changed, and make the fixture hold something the
+   request must NOT return (a second deck, an unsorted order) — `status_code == 200` and
+   "starts with `PK`" stayed true while every scoped export returned the whole collection.
 3. Implement `routers/<domain>.py` (the `with handle.locked()` + `mutation()`
    patterns above), register it in `app.py`'s import + `include_router` loop.
    Put literal routes (e.g. `/stock`, `/change-info`) BEFORE `/{id}` routes.
@@ -95,6 +99,20 @@ fixtures and a `V1Client` wrapper.
   persist with `col.models.update_dict(notetype)`.
 - Image Occlusion `occlusions` is a cloze string:
   `{{c1::image-occlusion:rect:left=..:top=..:width=..:height=..}}`.
+- **Some pylib methods dispatch on the argument's TYPE and have a permissive `else`**, so
+  the wrong shape is not an error — it is silently a different request. The export limit
+  goes through `anki.collection.pb_export_limit`, which takes Anki's wrapper dataclasses
+  (`DeckIdLimit` / `NoteIdsLimit` / `CardIdsLimit`, or `None`) and turns ANYTHING else,
+  including a correct `ExportLimit` protobuf, into "whole collection" (every scoped export
+  returned the entire collection until 2026-10-01). `find_cards`/`find_notes` go through
+  `_build_sort_mode`, which prints "is not a valid sort order" and searches unsorted for a
+  non-sortable column. Before handing a value to a `Collection` method, read the method:
+  if it re-wraps its argument, pass what the wrapper dispatches on.
+- **Anki accepts ids and names that do not exist** more often than it rejects them:
+  `decks.id(name)` CREATES the deck, `decks.remove`/`models.remove` no-op, the exporters
+  skip unknown note/card ids, the CSV importer creates a deck NAMED after an unknown deck
+  id, `set_config_id_for_deck_dict` stores a dangling preset id. Check existence first and
+  404 (see `_build_limit`, `preset_or_404`, `_select_deck`).
 
 ## Limitations
 

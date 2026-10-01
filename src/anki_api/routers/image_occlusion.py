@@ -107,8 +107,10 @@ def create_io_note(body: CreateIO, handle: CollectionHandle = Depends(get_handle
             if tmp_path:
                 os.unlink(tmp_path)
         new = after - before
-        note_id = new.pop() if new else None
-        return mutation(out, id=note_id)
+        if len(new) != 1:
+            # the backend reported success, so exactly one note must have appeared
+            raise RuntimeError(f"add_image_occlusion_note added {len(new)} notes, expected 1")
+        return mutation(out, id=new.pop())
 
 
 @router.get("/notes/{note_id}/image-occlusion")

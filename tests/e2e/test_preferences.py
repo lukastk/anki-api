@@ -38,3 +38,11 @@ def test_preferences_partial_update_merges(api):
     # an unrelated scheduling field is preserved (merge, not replace)
     if "new_timezone" in before:
         assert updated["scheduling"].get("new_timezone") == before.get("new_timezone")
+
+
+def test_preferences_unknown_field_is_422(api):
+    before = api.get("/preferences").json()
+    resp = api.put("/preferences", json={"scheduling": {"learn_ahead_sec": 1234}})
+    assert resp.status_code == 422
+    assert resp.json()["error"] == "invalid_body"
+    assert api.get("/preferences").json() == before

@@ -55,21 +55,33 @@ def _decode_states(token: str) -> SchedulingStates:
         raise HTTPException(status_code=400, detail="invalid review_token")
 
 
+def _select_deck(col, name: str) -> None:
+    """Make the deck called `name` the current one; 404 if there is none.
+
+    Not `col.decks.id(name)`: that CREATES the deck when it does not exist, so a mistyped
+    `deck=` on these GETs used to add a deck to the collection and report its empty queue."""
+    did = col.decks.id_for_name(name)
+    if did is None:
+        raise HTTPException(status_code=404, detail=f"deck {name!r} not found")
+    col.decks.select(did)
+
+
 @router.get("/counts")
 def counts(deck: str | None = None, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Today's new/learn/review counts for the current deck, or for the deck named `deck` (404 if there is no such deck)."""
     with handle.locked() as col:
         if deck:
-            col.decks.select(col.decks.id(deck))
+            _select_deck(col, deck)
         new, learn, review = col.sched.counts()
         return {"new": new, "learn": learn, "review": review}
 
 
 @router.get("/next")
 def next_card(deck: str | None = None, handle: CollectionHandle = Depends(get_handle)) -> dict | None:
-    """The next card due for review, or null if the queue is empty."""
+    """The next card due for review, or null if the queue is empty (404 if `deck` names no deck)."""
     with handle.locked() as col:
         if deck:
-            col.decks.select(col.decks.id(deck))
+            _select_deck(col, deck)
         queued = col.sched.get_queued_cards(fetch_limit=1)
         if not queued.cards:
             return None
