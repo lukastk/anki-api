@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Literal
 
 from anki import import_export_pb2 as ie
 # all from anki.collection: importing anki.cards or anki.decks first trips a circular
 # import inside the anki package, and collection re-exports the id NewTypes anyway
 from anki.collection import CardId, CardIdsLimit, DeckId, DeckIdLimit, NoteId, NoteIdsLimit
+from anki.utils import ids2str
 from google.protobuf.json_format import MessageToDict
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, model_validator
 from starlette.background import BackgroundTask
 
 from ..collection_handle import CollectionHandle
@@ -27,9 +31,33 @@ router = APIRouter(tags=["import-export"])
 
 
 class ExportLimit(BaseModel):
-    scope: str = "collection"  # collection | deck | notes | cards
+    """What to export: the whole collection, one deck (`deck_id`), or the notes / cards in
+    `ids`.
+
+    A limit that does not say one consistent thing is refused (422) rather than read
+    generously, because the generous reading of an export limit is a WIDER export:
+    `{"deck_id": "5"}` with `scope` left out used to mean the whole collection, and so did a
+    misspelled key. Hence `extra="forbid"` and the validator below."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scope: Literal["collection", "deck", "notes", "cards"] = "collection"
     deck_id: str | None = None
     ids: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _fields_match_scope(self) -> ExportLimit:
+        if self.scope == "deck":
+            if self.deck_id is None:
+                raise ValueError("deck_id required for scope=deck")
+        elif self.deck_id is not None:
+            raise ValueError(f"deck_id given with scope={self.scope}; it only applies to scope=deck")
+        if self.scope in ("notes", "cards"):
+            if self.ids is None:
+                raise ValueError(f"ids required for scope={self.scope}")
+        elif self.ids is not None:
+            raise ValueError(f"ids given with scope={self.scope}; they only apply to scope=notes or scope=cards")
+        return self
 
 
 class ExportApkg(BaseModel):
@@ -60,9 +88,22 @@ class ImportApkgOptions(BaseModel):
     with_deck_configs: bool = False
 
 
-def _build_limit(limit: ExportLimit) -> DeckIdLimit | NoteIdsLimit | CardIdsLimit | None:
+def _existing_ids(col, table: Literal["notes", "cards"], ids: list[int]) -> list[int]:
+    """`ids` as given, after checking every one is a row of `table` — 404 naming the ones
+    that are not. Anki's exporters skip an unknown id without a word, so an export asked for
+    N notes would come back with fewer and still be a 200."""
+    found = set(col.db.list(f"select id from {table} where id in {ids2str(ids)}"))
+    missing = [i for i in ids if i not in found]
+    if missing:
+        shown = ", ".join(str(i) for i in missing[:20])
+        more = f" (and {len(missing) - 20} more)" if len(missing) > 20 else ""
+        raise HTTPException(status_code=404, detail=f"{len(missing)} of the {len(ids)} {table[:-1]} ids not found: {shown}{more}")
+    return ids
+
+
+def _build_limit(col, limit: ExportLimit) -> DeckIdLimit | NoteIdsLimit | CardIdsLimit | None:
     """The limit Anki's exporters take — one of its WRAPPER types, or None for the whole
-    collection.
+    collection — after checking that what it names exists (404 otherwise).
 
     Not the `ie.ExportLimit` protobuf, which is what this returned until 2026-10-01 and
     which silently exported everything. `Collection.export_anki_package` passes whatever it
@@ -72,24 +113,37 @@ def _build_limit(limit: ExportLimit) -> DeckIdLimit | NoteIdsLimit | CardIdsLimi
     right shape. So every scoped export returned the entire collection and still answered
     200 with a valid .apkg. Asking for one 30-card deck of a 1032-card collection returned
     all 1032.
+
+    `ExportLimit`'s validator has already established that the fields fit the scope.
     """
     if limit.scope == "collection":
         return None
     if limit.scope == "deck":
-        if limit.deck_id is None:
-            raise HTTPException(status_code=422, detail="deck_id required for scope=deck")
-        return DeckIdLimit(DeckId(parse_id(limit.deck_id)))
+        did = parse_id(limit.deck_id)
+        if col.decks.get_legacy(did) is None:
+            raise HTTPException(status_code=404, detail=f"deck {limit.deck_id} not found")
+        return DeckIdLimit(DeckId(did))
     if limit.scope == "notes":
-        return NoteIdsLimit([NoteId(i) for i in parse_ids(limit.ids or [])])
-    if limit.scope == "cards":
-        return CardIdsLimit([CardId(i) for i in parse_ids(limit.ids or [])])
-    raise HTTPException(status_code=422, detail=f"unknown export scope {limit.scope!r}")
+        return NoteIdsLimit([NoteId(i) for i in _existing_ids(col, "notes", parse_ids(limit.ids))])
+    return CardIdsLimit([CardId(i) for i in _existing_ids(col, "cards", parse_ids(limit.ids))])
 
 
 def _tempfile(suffix: str) -> str:
     fd, path = tempfile.mkstemp(suffix=suffix, prefix="anki-export-")
     os.close(fd)
     return path
+
+
+@contextmanager
+def _export_file(suffix: str) -> Iterator[str]:
+    """A temp file for an exporter to write. Removed if the export raises; on success it is
+    `_download`'s background task that removes it, once the response has been sent."""
+    path = _tempfile(suffix)
+    try:
+        yield path
+    except BaseException:
+        os.unlink(path)
+        raise
 
 
 def _download(path: str, filename: str, media_type: str) -> FileResponse:
@@ -101,38 +155,44 @@ def _download(path: str, filename: str, media_type: str) -> FileResponse:
 
 @router.post("/export/apkg")
 def export_apkg(body: ExportApkg, handle: CollectionHandle = Depends(get_handle)) -> FileResponse:
-    path = _tempfile(".apkg")
+    """An .apkg of exactly what `limit` names (422 if the limit contradicts itself, 404 if it names a deck, note or card that does not exist)."""
     with handle.locked() as col:
-        col.export_anki_package(
-            out_path=path,
-            options=ie.ExportAnkiPackageOptions(
-                with_scheduling=body.with_scheduling,
-                with_media=body.with_media,
-                with_deck_configs=body.with_deck_configs,
-                legacy=body.legacy,
-            ),
-            limit=_build_limit(body.limit),
-        )
+        limit = _build_limit(col, body.limit)
+        with _export_file(".apkg") as path:
+            col.export_anki_package(
+                out_path=path,
+                options=ie.ExportAnkiPackageOptions(
+                    with_scheduling=body.with_scheduling,
+                    with_media=body.with_media,
+                    with_deck_configs=body.with_deck_configs,
+                    legacy=body.legacy,
+                ),
+                limit=limit,
+            )
     return _download(path, "export.apkg", "application/octet-stream")
 
 
 @router.post("/export/notes-csv")
 def export_notes_csv(body: ExportNotesCsv, handle: CollectionHandle = Depends(get_handle)) -> FileResponse:
-    path = _tempfile(".csv")
+    """A tab-separated export of exactly the notes `limit` names (same 422 / 404 rules as /export/apkg)."""
     with handle.locked() as col:
-        col.export_note_csv(
-            out_path=path, limit=_build_limit(body.limit), with_html=body.with_html,
-            with_tags=body.with_tags, with_deck=body.with_deck,
-            with_notetype=body.with_notetype, with_guid=body.with_guid,
-        )
+        limit = _build_limit(col, body.limit)
+        with _export_file(".csv") as path:
+            col.export_note_csv(
+                out_path=path, limit=limit, with_html=body.with_html,
+                with_tags=body.with_tags, with_deck=body.with_deck,
+                with_notetype=body.with_notetype, with_guid=body.with_guid,
+            )
     return _download(path, "notes.csv", "text/csv")
 
 
 @router.post("/export/cards-csv")
 def export_cards_csv(body: ExportCardsCsv, handle: CollectionHandle = Depends(get_handle)) -> FileResponse:
-    path = _tempfile(".csv")
+    """A tab-separated question/answer export of exactly the cards `limit` names (same 422 / 404 rules as /export/apkg)."""
     with handle.locked() as col:
-        col.export_card_csv(out_path=path, limit=_build_limit(body.limit), with_html=body.with_html)
+        limit = _build_limit(col, body.limit)
+        with _export_file(".csv") as path:
+            col.export_card_csv(out_path=path, limit=limit, with_html=body.with_html)
     return _download(path, "cards.csv", "text/csv")
 
 
@@ -191,15 +251,26 @@ def import_csv(
     handle: CollectionHandle = Depends(get_handle),
 ) -> dict:
     """Import notes from a CSV using detected metadata, into the given deck +
-    notetype (column order maps to the notetype's fields)."""
+    notetype (column order maps to the notetype's fields). 404 for a deck or notetype
+    that does not exist."""
     path = _save_upload(file, ".csv")
     try:
         with handle.locked() as col:
             metadata = col.get_csv_metadata(path, None)
             if deck_id:
-                metadata.deck_id = parse_id(deck_id)
+                # the importer does not reject an unknown deck id: it creates a deck NAMED
+                # after the id and imports into that
+                did = parse_id(deck_id)
+                if col.decks.get_legacy(did) is None:
+                    raise HTTPException(status_code=404, detail=f"deck {deck_id} not found")
+                metadata.deck_id = did
             if notetype_id:
-                metadata.global_notetype.id = parse_id(notetype_id)
+                # nor an unknown notetype id: it imports nothing, reports the rows under
+                # `missing_notetype` and succeeds
+                ntid = parse_id(notetype_id)
+                if col.models.get(ntid) is None:
+                    raise HTTPException(status_code=404, detail=f"notetype {notetype_id} not found")
+                metadata.global_notetype.id = ntid
             log = col.import_csv(ie.ImportCsvRequest(path=path, metadata=metadata))
         return MessageToDict(log, preserving_proto_field_name=True)
     finally:
