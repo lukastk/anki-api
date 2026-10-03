@@ -276,3 +276,40 @@ def test_import_csv_with_an_unknown_notetype_is_404(api):
     )
     assert resp.status_code == 404
     assert api.get("/collection").json()["note_count"] == 0
+
+
+def _zipped(members: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for name, data in members.items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+_NOT_A_PACKAGE = {
+    "not a zip": b"not a zip",
+    "empty upload": b"",
+    "empty zip": _zipped({}),
+    "zip with no collection inside": _zipped({"media": b"{}", "hello.txt": b"hi"}),
+}
+
+
+@pytest.mark.parametrize("label", list(_NOT_A_PACKAGE))
+def test_import_apkg_that_is_not_a_package_is_400(api, label):
+    """Anki reports its zip errors as SyncError, which the API answered as 502 `sync_error` —
+    a server-side failure code, for a bad upload. Lukas (2026-10-03): a 400 with a plain
+    message."""
+    api.make_note(deck="D", front="x")
+    blob = _NOT_A_PACKAGE[label]
+    resp = api.post("/import/apkg", files={"file": ("e.apkg", blob, "application/octet-stream")})
+    assert resp.status_code == 400, label
+    assert resp.json()["detail"].startswith("not a valid .apkg: "), label
+    assert api.get("/collection").json()["note_count"] == 1
+
+
+def test_import_apkg_truncated_is_400(api):
+    api.make_note(deck="D", front="x")
+    good = api.post("/export/apkg", json={"limit": {"scope": "collection"}, "with_media": False}).content
+    resp = api.post("/import/apkg", files={"file": ("e.apkg", good[: len(good) // 2], "application/octet-stream")})
+    assert resp.status_code == 400
+    assert "not a valid .apkg" in resp.json()["detail"]

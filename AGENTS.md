@@ -46,6 +46,11 @@ downstream-replica deployments), `ANKI_API_AUTOSYNC_NOTIFY_CMD` (best-effort
   the lock is the whole concurrency story. Don't make routes `async`.
 - **IDs are strings in JSON** (Anki's 64-bit ids exceed JS safe int). Parse with
   `ids.parse_id` / `parse_ids`; serialize with `str(...)`. Never return raw ints.
+- **Every request model inherits `schemas.common.RequestModel`** (`extra="forbid"`),
+  nested ones included, so an undeclared key is a 422 rather than silently a different
+  request. `tests/unit/test_request_models.py` walks the OpenAPI schema and fails for a
+  model that does not; a body typed `dict[str, Any]` must be checked by its handler
+  against the stored shape (see `_deep_merge` in deck_presets) and listed there.
 - **Mutating endpoints return the OpChanges envelope** via
   `schemas.common.mutation(op_changes_result, id=?, count=?)`. The `changes`
   flags tell a reactive UI what to refresh. For `OpChangesWithCount` pass

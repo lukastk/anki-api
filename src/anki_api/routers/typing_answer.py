@@ -8,21 +8,21 @@ extract the expected text for a cloze-typing card.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
+from ..schemas.common import RequestModel
 
 router = APIRouter(tags=["typing"])
 
 
-class CompareAnswer(BaseModel):
+class CompareAnswer(RequestModel):
     expected: str
     provided: str
     combining: bool = True
 
 
-class ExtractCloze(BaseModel):
+class ExtractCloze(RequestModel):
     text: str
     ordinal: int
 

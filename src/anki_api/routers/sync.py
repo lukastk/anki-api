@@ -23,10 +23,10 @@ import time
 from anki import sync_pb2
 from anki.collection import Collection
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
+from ..schemas.common import RequestModel
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 
@@ -49,13 +49,13 @@ _STATUS = {
 }
 
 
-class Login(BaseModel):
+class Login(RequestModel):
     username: str
     password: str
     endpoint: str | None = None  # null -> AnkiWeb; otherwise a self-hosted URL
 
 
-class SyncOptions(BaseModel):
+class SyncOptions(RequestModel):
     sync_media: bool = True
 
 

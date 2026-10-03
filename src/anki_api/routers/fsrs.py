@@ -9,20 +9,19 @@ from __future__ import annotations
 
 from google.protobuf.json_format import MessageToDict
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(prefix="/fsrs", tags=["fsrs"])
 
 
-class SetEnabled(BaseModel):
+class SetEnabled(RequestModel):
     enabled: bool
 
 
-class ComputeParams(BaseModel):
+class ComputeParams(RequestModel):
     search: str
     current_params: list[float] = []
     ignore_revlogs_before_ms: int = 0
@@ -30,7 +29,7 @@ class ComputeParams(BaseModel):
     health_check: bool = False
 
 
-class EvaluateParams(BaseModel):
+class EvaluateParams(RequestModel):
     search: str
     ignore_revlogs_before_ms: int = 0
     num_of_relearning_steps: int = 0

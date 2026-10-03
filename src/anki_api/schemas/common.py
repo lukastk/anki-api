@@ -1,8 +1,21 @@
-"""Shared schemas: the OpChanges mutation envelope and common request shapes."""
+"""Shared schemas: the request-model base, the OpChanges mutation envelope and common
+request shapes."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class RequestModel(BaseModel):
+    """Base of every JSON request body: a key the model does not declare is a 422.
+
+    Pydantic's default is to drop unknown keys, so a misspelled or misplaced key was
+    silently a different request — `{"deck_id": X}` with the scope left out exported the
+    whole collection, `{"tgas": [...]}` on PUT /notes/{id} was a 200 that changed nothing.
+    Lukas's ruling (2026-10-03): refuse them everywhere. Nested request models inherit
+    this too, so the check reaches every level of the body."""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class OpChangesModel(BaseModel):

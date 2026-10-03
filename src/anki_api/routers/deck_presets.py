@@ -11,18 +11,18 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id
+from ..schemas.common import RequestModel
 
 router = APIRouter(prefix="/deck-presets", tags=["deck-presets"])
 
 DEFAULT_PRESET_ID = 1
 
 
-class CreatePreset(BaseModel):
+class CreatePreset(RequestModel):
     name: str
     clone_from: str | None = None
 
@@ -42,10 +42,17 @@ def _view(cfg: dict) -> dict:
     return out
 
 
-def _deep_merge(base: dict, patch: dict) -> None:
+def _deep_merge(base: dict, patch: dict, path: str = "") -> None:
+    """Merge `patch` into the preset `base`, key by key, nested dicts recursively. A key the
+    preset does not have (at any level) is a 422: Anki keeps unknown keys in the config JSON
+    without complaint, so `{"new": {"perday": 5}}` used to be stored, change nothing, and
+    answer 200."""
     for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            _deep_merge(base[key], value)
+        here = f"{path}.{key}" if path else key
+        if key not in base:
+            raise HTTPException(status_code=422, detail=f"unknown preset key {here!r}; see GET /deck-presets/{{id}} for the keys")
+        if isinstance(value, dict) and isinstance(base[key], dict):
+            _deep_merge(base[key], value, here)
         else:
             base[key] = value
 
@@ -73,7 +80,7 @@ def create_preset(body: CreatePreset, handle: CollectionHandle = Depends(get_han
 
 @router.put("/{preset_id}")
 def update_preset(preset_id: str, body: dict[str, Any], handle: CollectionHandle = Depends(get_handle)) -> dict:
-    """Merge a partial config into the preset (deep-merges nested new/rev/lapse)."""
+    """Merge a partial config into the preset (deep-merges nested new/rev/lapse). 422 for a key the preset does not have."""
     pid = parse_id(preset_id)
     with handle.locked() as col:
         cfg = preset_or_404(col, pid)

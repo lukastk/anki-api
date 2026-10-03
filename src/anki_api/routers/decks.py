@@ -3,31 +3,30 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id, parse_ids
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 from .deck_presets import preset_or_404
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
 
-class CreateDeck(BaseModel):
+class CreateDeck(RequestModel):
     name: str
 
 
-class RenameDeck(BaseModel):
+class RenameDeck(RequestModel):
     name: str
 
 
-class Reparent(BaseModel):
+class Reparent(RequestModel):
     deck_ids: list[str]
     new_parent: str
 
 
-class AssignPreset(BaseModel):
+class AssignPreset(RequestModel):
     preset_id: str
 
 

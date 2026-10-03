@@ -13,12 +13,11 @@ import re
 
 from anki.scheduler_pb2 import CardAnswer, SchedulingStates
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id, parse_ids
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -32,14 +31,14 @@ _RATINGS = {
 _BUTTON_ORDER = ("again", "hard", "good", "easy")
 
 
-class Answer(BaseModel):
+class Answer(RequestModel):
     card_id: str
     rating: str
     review_token: str
     time_taken_ms: int | None = None
 
 
-class SetDueDate(BaseModel):
+class SetDueDate(RequestModel):
     card_ids: list[str]
     days: str  # Anki's set-due-date DSL, e.g. "0", "1", "3-7", "1!"
 

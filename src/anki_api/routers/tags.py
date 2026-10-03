@@ -3,36 +3,35 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_ids
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
 
-class TagsOnNotes(BaseModel):
+class TagsOnNotes(RequestModel):
     note_ids: list[str]
     tags: list[str]
 
 
-class RenameTag(BaseModel):
+class RenameTag(RequestModel):
     old: str
     new: str
 
 
-class Reparent(BaseModel):
+class Reparent(RequestModel):
     tags: list[str]
     new_parent: str
 
 
-class DeleteTags(BaseModel):
+class DeleteTags(RequestModel):
     tags: list[str]
 
 
-class SetCollapsed(BaseModel):
+class SetCollapsed(RequestModel):
     tag: str
     collapsed: bool
 

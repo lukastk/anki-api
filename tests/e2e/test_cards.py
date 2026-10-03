@@ -55,9 +55,13 @@ def test_set_deck(api, card_id):
     assert api.get(f"/cards/{card_id}").json()["deck_id"] == other
 
 
-def test_card_stats_html(api, card_id):
-    stats = api.get(f"/cards/{card_id}/stats").json()
-    assert "<" in stats["html"]
+def test_card_stats_html_route_is_gone(api, card_id):
+    """Removed 2026-10-03 (Lukas: "probably remove it"). It returned Anki's DEPRECATED
+    `card_stats` webview bootstrap page — `<div id="cardinfo-…"><script src="pages/card-info.js">`,
+    useless outside Anki's own webview — and answered 200 for a card that does not exist.
+    The structured card info is `GET /stats/card/{id}`."""
+    assert api.get(f"/cards/{card_id}/stats").status_code == 404
+    assert api.get(f"/stats/card/{card_id}").json()["card_id"] == card_id
 
 
 # --- bulk views + scheduling writes (the scheduling snapshot/restore surface) ---

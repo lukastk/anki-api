@@ -12,16 +12,17 @@ import tempfile
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import Field
 from starlette.background import BackgroundTask
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
+from ..schemas.common import RequestModel
 
 router = APIRouter(prefix="/media/tts", tags=["tts"])
 
 
-class Synthesize(BaseModel):
+class Synthesize(RequestModel):
     text: str
     voice_id: str
     speed: float = Field(default=1.0, gt=0)

@@ -11,15 +11,15 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
+from ..schemas.common import RequestModel
 
 router = APIRouter(prefix="/media", tags=["media"])
 
 
-class UploadMedia(BaseModel):
+class UploadMedia(RequestModel):
     filename: str
     data_base64: str
 

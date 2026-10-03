@@ -11,18 +11,17 @@ from typing import Any
 
 from google.protobuf.json_format import MessageToDict, ParseDict
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(tags=["preferences"])
 
 _MISSING = object()
 
 
-class ConfigValue(BaseModel):
+class ConfigValue(RequestModel):
     value: Any
 
 

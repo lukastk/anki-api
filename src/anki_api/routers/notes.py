@@ -6,17 +6,16 @@ Notetypes are referenced by name in v1 (the notetypes router is [parity], later)
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(prefix="/notes", tags=["notes"])
 
 
-class CreateNote(BaseModel):
+class CreateNote(RequestModel):
     deck: str
     notetype: str = "Basic"
     fields: dict[str, str]
@@ -29,7 +28,7 @@ class CreatedNote(Mutation):
     card_ids: list[str] = []
 
 
-class UpdateNote(BaseModel):
+class UpdateNote(RequestModel):
     fields: dict[str, str] | None = None
     tags: list[str] | None = None
 

@@ -9,12 +9,11 @@ from __future__ import annotations
 
 from anki import decks_pb2, scheduler_pb2
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(prefix="/filtered-decks", tags=["filtered-decks"])
 
@@ -30,7 +29,7 @@ _CUSTOM_STUDY_FIELDS = {
 _ORDERS = decks_pb2.Deck.Filtered.SearchTerm.Order
 
 
-class CreateFiltered(BaseModel):
+class CreateFiltered(RequestModel):
     name: str
     search: str
     limit: int = 100
@@ -40,7 +39,7 @@ class CreateFiltered(BaseModel):
     order: int = 0
 
 
-class CustomStudy(BaseModel):
+class CustomStudy(RequestModel):
     deck_id: str
     mode: str  # new_limit | review_limit | forgot | ahead | preview
     value: int

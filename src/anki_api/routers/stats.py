@@ -11,7 +11,6 @@ from __future__ import annotations
 from google.protobuf.json_format import MessageToDict, ParseDict
 from anki import stats_pb2
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 from typing import Any
 
 from ..collection_handle import CollectionHandle
@@ -40,7 +39,7 @@ def studied_today(handle: CollectionHandle = Depends(get_handle)) -> dict:
 
 @router.get("/card/{card_id}")
 def card_stats_data(card_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
-    """Structured card info (complements the rendered HTML at /cards/{id}/stats)."""
+    """Structured card info: the data behind Anki's Card Info screen (404 for an unknown card)."""
     cid = parse_id(card_id)
     with handle.locked() as col:
         return _to_dict(col.card_stats_data(cid))

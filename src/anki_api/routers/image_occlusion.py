@@ -14,25 +14,24 @@ import tempfile
 
 from google.protobuf.json_format import MessageToDict
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(tags=["image-occlusion"])
 
 IO_NOTETYPE = "Image Occlusion"
 
 
-class Occlusion(BaseModel):
+class Occlusion(RequestModel):
     shape: str  # rect | ellipse | polygon
     properties: dict[str, str | float | int]
     ordinal: int | None = None
 
 
-class CreateIO(BaseModel):
+class CreateIO(RequestModel):
     occlusions: list[Occlusion]
     header: str = ""
     back_extra: str = ""
@@ -42,7 +41,7 @@ class CreateIO(BaseModel):
     image_upload_name: str = "image.png"  # filename used when uploading inline data
 
 
-class UpdateIO(BaseModel):
+class UpdateIO(RequestModel):
     occlusions: list[Occlusion] | None = None
     header: str | None = None
     back_extra: str | None = None

@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from typing import Literal
 
 from anki import import_export_pb2 as ie
+from anki.errors import SyncError
 # all from anki.collection: importing anki.cards or anki.decks first trips a circular
 # import inside the anki package, and collection re-exports the id NewTypes anyway
 from anki.collection import CardId, CardIdsLimit, DeckId, DeckIdLimit, NoteId, NoteIdsLimit
@@ -20,26 +21,26 @@ from anki.utils import ids2str
 from google.protobuf.json_format import MessageToDict
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import model_validator
 from starlette.background import BackgroundTask
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id, parse_ids
+from ..schemas.common import RequestModel
 
 router = APIRouter(tags=["import-export"])
 
 
-class ExportLimit(BaseModel):
+class ExportLimit(RequestModel):
     """What to export: the whole collection, one deck (`deck_id`), or the notes / cards in
     `ids`.
 
     A limit that does not say one consistent thing is refused (422) rather than read
     generously, because the generous reading of an export limit is a WIDER export:
     `{"deck_id": "5"}` with `scope` left out used to mean the whole collection, and so did a
-    misspelled key. Hence `extra="forbid"` and the validator below."""
-
-    model_config = ConfigDict(extra="forbid")
+    misspelled key. Hence the validator below (and `RequestModel`'s refusal of unknown
+    keys, which every request body now has)."""
 
     scope: Literal["collection", "deck", "notes", "cards"] = "collection"
     deck_id: str | None = None
@@ -60,7 +61,7 @@ class ExportLimit(BaseModel):
         return self
 
 
-class ExportApkg(BaseModel):
+class ExportApkg(RequestModel):
     limit: ExportLimit = ExportLimit()
     with_scheduling: bool = False
     with_media: bool = True
@@ -68,7 +69,7 @@ class ExportApkg(BaseModel):
     legacy: bool = False
 
 
-class ExportNotesCsv(BaseModel):
+class ExportNotesCsv(RequestModel):
     limit: ExportLimit = ExportLimit()
     with_html: bool = True
     with_tags: bool = True
@@ -77,12 +78,12 @@ class ExportNotesCsv(BaseModel):
     with_guid: bool = False
 
 
-class ExportCardsCsv(BaseModel):
+class ExportCardsCsv(RequestModel):
     limit: ExportLimit = ExportLimit()
     with_html: bool = True
 
 
-class ImportApkgOptions(BaseModel):
+class ImportApkgOptions(RequestModel):
     merge_notetypes: bool = False
     with_scheduling: bool = False
     with_deck_configs: bool = False
@@ -213,19 +214,27 @@ def import_apkg(
     with_deck_configs: bool = False,
     handle: CollectionHandle = Depends(get_handle),
 ) -> dict:
+    """Import an .apkg upload; the response is Anki's import log plus the change set. 400 if the upload is not a package (not a zip, no collection inside, truncated)."""
     path = _save_upload(file, ".apkg")
     try:
         with handle.locked() as col:
-            log = col.import_anki_package(
-                ie.ImportAnkiPackageRequest(
-                    package_path=path,
-                    options=ie.ImportAnkiPackageOptions(
-                        merge_notetypes=merge_notetypes,
-                        with_scheduling=with_scheduling,
-                        with_deck_configs=with_deck_configs,
-                    ),
+            try:
+                log = col.import_anki_package(
+                    ie.ImportAnkiPackageRequest(
+                        package_path=path,
+                        options=ie.ImportAnkiPackageOptions(
+                            merge_notetypes=merge_notetypes,
+                            with_scheduling=with_scheduling,
+                            with_deck_configs=with_deck_configs,
+                        ),
+                    )
                 )
-            )
+            except SyncError as exc:
+                # Anki files its zip errors ("invalid Zip archive: Could not find EOCD",
+                # "specified file not found in archive") under SyncError, which errors.py
+                # rightly maps to 502. An import contacts no server, so here a SyncError can
+                # only mean the upload is not a package — the caller's mistake, 400.
+                raise HTTPException(status_code=400, detail=f"not a valid .apkg: {exc}") from exc
         return MessageToDict(log, preserving_proto_field_name=True)
     finally:
         os.unlink(path)

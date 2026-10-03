@@ -13,12 +13,11 @@ from typing import Literal
 
 from anki.collection import BrowserColumns, BrowserConfig
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_ids
-from ..schemas.common import mutation
+from ..schemas.common import RequestModel, mutation
 
 router = APIRouter(tags=["search"])
 
@@ -26,22 +25,22 @@ router = APIRouter(tags=["search"])
 BrowserMode = Literal["cards", "notes"]
 
 
-class Search(BaseModel):
+class Search(RequestModel):
     query: str
     order: str | None = None  # a sortable column key from GET /browser/columns; null = unsorted
     reverse: bool = False  # reverse `order` (meaningless, and refused, without one)
 
 
-class BrowserRows(BaseModel):
+class BrowserRows(RequestModel):
     card_ids: list[str]
 
 
-class ActiveColumns(BaseModel):
+class ActiveColumns(RequestModel):
     columns: list[str]
     mode: BrowserMode = "cards"
 
 
-class FindReplace(BaseModel):
+class FindReplace(RequestModel):
     note_ids: list[str]
     search: str
     replacement: str

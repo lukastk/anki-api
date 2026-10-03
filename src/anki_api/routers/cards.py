@@ -1,21 +1,21 @@
-"""Card endpoints [core]: get a card, card-info HTML, and bulk actions
-(suspend/bury/set-deck/set-flag) on a card-id selection."""
+"""Card endpoints [core]: get a card, and bulk actions (suspend/bury/set-deck/set-flag)
+on a card-id selection. Card info is `GET /stats/card/{id}` (structured)."""
 
 from __future__ import annotations
 
 from anki.utils import ids2str
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id, parse_ids
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(prefix="/cards", tags=["cards"])
 
 
-class CardIds(BaseModel):
+class CardIds(RequestModel):
     card_ids: list[str]
 
 
@@ -39,7 +39,7 @@ class RepositionNew(CardIds):
     shift_existing: bool = False
 
 
-class PatchCard(BaseModel):
+class PatchCard(RequestModel):
     interval: int | None = Field(default=None, ge=0, description="interval in days (ivl)")
     factor: int | None = Field(default=None, ge=0, description="ease per-mille, e.g. 2500")
     reps: int | None = Field(default=None, ge=0)
@@ -141,14 +141,6 @@ def patch_card(card_id: str, body: PatchCard, handle: CollectionHandle = Depends
         if body.lapses is not None:
             card.lapses = body.lapses
         return mutation(col.update_card(card))
-
-
-@router.get("/{card_id}/stats")
-def card_stats(card_id: str, include_revlog: bool = True, handle: CollectionHandle = Depends(get_handle)) -> dict:
-    """The fully-rendered Card Info HTML that desktop/AnkiDroid show."""
-    cid = parse_id(card_id)
-    with handle.locked() as col:
-        return {"html": col.card_stats(cid, include_revlog)}
 
 
 @router.post("/actions/suspend")

@@ -2,8 +2,12 @@
 
 Auto-generated from the live routes. The server also serves interactive
 OpenAPI docs at **`/docs`** (Swagger UI) and **`/redoc`**, and the raw schema
-at `/openapi.json`. All paths are under `/v1`.
-**130 endpoints across 21 domains.**
+at `/openapi.json`. All paths are under `/v1`. Every JSON request body refuses a
+key it does not declare (422, `extra_forbidden`, naming the key), at every nesting
+level; the three plain-dict bodies (`PUT /v1/preferences`,
+`PUT /v1/stats/graph-preferences`, `PUT /v1/deck-presets/{id}`) are checked against
+the stored shape and answer 422 the same way.
+**129 endpoints across 21 domains.**
 
 
 ## cards
@@ -22,7 +26,6 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/cards/views` | Bulk card views for a card-id selection, with each card's first_review/latest_review (epoch seconds as JSON integers, null when never reviewed; `/v1/stats/card/{id}` reports the same values as strings — protobuf int64 — so compare as numbers). |
 | `GET` | `/v1/cards/{card_id}` | One card's view — the same shape as an element of POST /cards/views, first_review/latest_review included. |
 | `PATCH` | `/v1/cards/{card_id}` | Write scheduling columns directly (mutate-then-update_card). Meant for |
-| `GET` | `/v1/cards/{card_id}/stats` | The fully-rendered Card Info HTML that desktop/AnkiDroid show. |
 
 ## deck-presets
 
@@ -32,7 +35,7 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/deck-presets` |  |
 | `DELETE` | `/v1/deck-presets/{preset_id}` |  |
 | `GET` | `/v1/deck-presets/{preset_id}` |  |
-| `PUT` | `/v1/deck-presets/{preset_id}` | Merge a partial config into the preset (deep-merges nested new/rev/lapse). |
+| `PUT` | `/v1/deck-presets/{preset_id}` | Merge a partial config into the preset (deep-merges nested new/rev/lapse). 422 for a key the preset does not have, at any level. |
 | `POST` | `/v1/deck-presets/{preset_id}/restore-defaults` |  |
 
 ## decks
@@ -83,7 +86,7 @@ at `/openapi.json`. All paths are under `/v1`.
 | `POST` | `/v1/export/apkg` | An .apkg of exactly what `limit` names: `{"scope": "collection"}` (the default), `{"scope": "deck", "deck_id": …}`, `{"scope": "notes", "ids": […]}` or `{"scope": "cards", "ids": […]}`. A limit that contradicts itself — a `deck_id` or `ids` that does not belong to the scope (including a `deck_id` with the scope left out), a missing one, an unknown key — is a 422, never a wider export; a deck, note or card id that does not exist is a 404 naming it. |
 | `POST` | `/v1/export/cards-csv` | A tab-separated question/answer export of exactly the cards `limit` names (same `limit`, 422 and 404 rules as `/v1/export/apkg`). |
 | `POST` | `/v1/export/notes-csv` | A tab-separated export of exactly the notes `limit` names (same `limit`, 422 and 404 rules as `/v1/export/apkg`). |
-| `POST` | `/v1/import/apkg` |  |
+| `POST` | `/v1/import/apkg` | Import an .apkg upload; the response is Anki's import log plus the change set. 400 if the upload is not a package (not a zip, no collection inside, truncated). |
 | `POST` | `/v1/import/csv` | Import notes from a CSV using detected metadata, into the given deck + notetype (column order maps to the notetype's fields). 404 for a `deck_id` or `notetype_id` that does not exist. |
 | `POST` | `/v1/import/csv/metadata` | Detected metadata (delimiter, column count, html-ness) for an uploaded CSV, |
 
@@ -165,7 +168,7 @@ at `/openapi.json`. All paths are under `/v1`.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/v1/stats/card/{card_id}` | Structured card info (complements the rendered HTML at /cards/{id}/stats). |
+| `GET` | `/v1/stats/card/{card_id}` | Structured card info: the data behind Anki's Card Info screen (404 for an unknown card). (`GET /v1/cards/{id}/stats`, which returned Anki's deprecated webview page, was removed 2026-10-03.) |
 | `GET` | `/v1/stats/graph-preferences` |  |
 | `PUT` | `/v1/stats/graph-preferences` |  |
 | `GET` | `/v1/stats/graphs` | All stats-graph data for cards matching `search` over the last `days`. |

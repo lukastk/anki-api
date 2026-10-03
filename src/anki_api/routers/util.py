@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from anki import i18n_pb2, links_pb2
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
+from ..schemas.common import RequestModel
 
 router = APIRouter(tags=["util"])
 
@@ -23,12 +23,12 @@ _TIMESPAN_CONTEXTS = {
 }
 
 
-class FormatTimespan(BaseModel):
+class FormatTimespan(RequestModel):
     seconds: float
     context: str = "intervals"
 
 
-class RenderMarkdown(BaseModel):
+class RenderMarkdown(RequestModel):
     markdown: str
     sanitize: bool = True
 

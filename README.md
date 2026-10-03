@@ -94,6 +94,11 @@ Grounded in the feasibility experiments under [`_dev/experiments/`](_dev/experim
   views to refresh.
 - **IDs as strings.** Anki's 64-bit ids exceed JS `Number.MAX_SAFE_INTEGER`, so
   they are serialized as strings everywhere.
+- **Unknown JSON keys are refused.** A request body key the endpoint does not
+  declare is a 422 (`extra_forbidden`), at every nesting level — a misspelled key
+  is never silently a different request. The three plain-dict bodies
+  (`PUT /preferences`, `PUT /stats/graph-preferences`, `PUT /deck-presets/{id}`)
+  are checked against the stored shape instead and answer 422 the same way.
 - **Errors are loud.** Backend errors map to specific HTTP statuses
   (404/409/422/400/502); anything unrecognised surfaces as a `500` rather than
   being silently swallowed.

@@ -13,19 +13,18 @@ import copy
 from anki import stdmodels
 from anki.consts import MODEL_CLOZE
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
 from ..ids import parse_id, parse_ids
-from ..schemas.common import Mutation, mutation
+from ..schemas.common import Mutation, RequestModel, mutation
 
 router = APIRouter(prefix="/notetypes", tags=["notetypes"])
 
 
 # --- request models ---
 
-class CreateNotetype(BaseModel):
+class CreateNotetype(RequestModel):
     name: str
     stock: str = "Basic"
     # Extra fields to include AT creation. Adding a brand-new notetype is an
@@ -35,45 +34,45 @@ class CreateNotetype(BaseModel):
     fields: list[str] = []
 
 
-class CloneNotetype(BaseModel):
+class CloneNotetype(RequestModel):
     name: str
 
 
-class PatchNotetype(BaseModel):
+class PatchNotetype(RequestModel):
     name: str | None = None
     css: str | None = None
     sort_field_index: int | None = None
 
 
-class AddField(BaseModel):
+class AddField(RequestModel):
     name: str
 
 
-class RenameField(BaseModel):
+class RenameField(RequestModel):
     new_name: str
 
 
-class Reposition(BaseModel):
+class Reposition(RequestModel):
     index: int
 
 
-class AddTemplate(BaseModel):
+class AddTemplate(RequestModel):
     name: str
     qfmt: str
     afmt: str
 
 
-class UpdateTemplate(BaseModel):
+class UpdateTemplate(RequestModel):
     qfmt: str | None = None
     afmt: str | None = None
 
 
-class ChangeInfo(BaseModel):
+class ChangeInfo(RequestModel):
     old_notetype_id: str
     new_notetype_id: str
 
 
-class ChangeNotetype(BaseModel):
+class ChangeNotetype(RequestModel):
     note_ids: list[str]
     old_notetype_id: str
     new_notetype_id: str
