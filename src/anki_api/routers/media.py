@@ -55,6 +55,16 @@ def check(handle: CollectionHandle = Depends(get_handle)) -> dict:
         }
 
 
+# `:path` so a name carrying an (encoded) separator still reaches `_safe_name` and
+# is a 400, rather than missing the route and reading as a plain 404.
+@router.get("/files/{filename:path}/exists")
+def exists(filename: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Whether the media folder holds `filename`, without reading or touching it."""
+    name = _safe_name(filename)
+    with handle.locked() as col:
+        return {"filename": name, "exists": col.media.have(name)}
+
+
 @router.get("/files/{filename}")
 def download(filename: str, handle: CollectionHandle = Depends(get_handle)) -> FileResponse:
     name = _safe_name(filename)

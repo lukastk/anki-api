@@ -98,6 +98,7 @@ the stored shape and answer 422 the same way.
 | `POST` | `/v1/media/files` |  |
 | `DELETE` | `/v1/media/files/{filename}` |  |
 | `GET` | `/v1/media/files/{filename}` |  |
+| `GET` | `/v1/media/files/{filename}/exists` | `{"filename": …, "exists": bool}` — whether the media folder holds the file, without its bytes and without touching it. An absent file is `200` with `exists: false`, not a 404. A name that is not a bare filename (a `/` or `\` in it, encoded or not, or `.`/`..`) is a 400. |
 
 ## notes
 
