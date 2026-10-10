@@ -1,5 +1,7 @@
 """Collection maintenance [parity]: check database, optimize, empty cards."""
 
+import time
+
 
 def test_check_database(api):
     api.make_note(deck="D", front="a")
@@ -39,3 +41,15 @@ def test_empty_cards_remove_deletes_exactly_the_empty_card(api):
     assert api.get(f"/notes/{note['id']}").json()["card_ids"] == [forward]
     assert api.get(f"/notes/{bystander['id']}").json()["card_ids"] == bystander["card_ids"]
     assert "notes" not in api.get("/collection/empty-cards").json()
+
+
+def test_collection_timing(api):
+    out = api.get("/collection/timing").json()
+    now = int(out["now"])
+    assert abs(now - time.time()) < 5
+    assert now < int(out["next_day_at"]) <= now + 86_400
+    assert out["days_elapsed"] >= 0
+    assert int(out["created"]) == int(api.get("/collection").json()["created"])
+    assert out["rollover_hour"] == 4
+    # days_elapsed counts days since creation, so creation day + elapsed days is today
+    assert int(out["created"]) + out["days_elapsed"] * 86_400 <= int(out["next_day_at"])

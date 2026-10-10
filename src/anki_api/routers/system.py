@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 from google.protobuf.json_format import MessageToDict
 from fastapi import APIRouter, Depends
@@ -30,6 +31,23 @@ def collection_info(handle: CollectionHandle = Depends(get_handle)) -> dict:
             "v3_scheduler": col.v3_scheduler(),
             "note_count": col.note_count(),
             "card_count": col.card_count(),
+        }
+
+
+@router.get("/collection/timing")
+def collection_timing(handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Anki's day boundary (sched_timing_today): `days_elapsed` since the collection was
+    created, and `next_day_at`, when today ends (the rollover hour, local time). Stamps are
+    epoch seconds as strings; `created` is the collection creation stamp (col.crt), the
+    same value GET /collection reports."""
+    with handle.locked() as col:
+        timing = col._backend.sched_timing_today()
+        return {
+            "days_elapsed": timing.days_elapsed,
+            "next_day_at": str(timing.next_day_at),
+            "now": str(int(time.time())),
+            "created": str(col.crt),
+            "rollover_hour": col.get_config("rollover", 4),
         }
 
 
