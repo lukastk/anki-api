@@ -11,7 +11,9 @@ from __future__ import annotations
 import base64
 import re
 
+from anki.consts import QUEUE_TYPE_SUSPENDED
 from anki.scheduler_pb2 import CardAnswer, SchedulingStates
+from anki.utils import ids2str
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..collection_handle import CollectionHandle
@@ -36,6 +38,11 @@ class Answer(RequestModel):
     rating: str
     review_token: str
     time_taken_ms: int | None = None
+
+
+class GradeNow(RequestModel):
+    card_ids: list[str]
+    rating: str
 
 
 class SetDueDate(RequestModel):
@@ -110,6 +117,36 @@ def answer(body: Answer, handle: CollectionHandle = Depends(get_handle)) -> Muta
         if body.time_taken_ms is not None:
             ans.milliseconds_taken = body.time_taken_ms
         return mutation(col.sched.answer_card(ans))
+
+
+@router.post("/grade-now")
+def grade_now(body: GradeNow, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Grade cards without showing them (Anki's Grade Now): one revlog row per card, stamped
+    now, and the card rescheduled as an ordinary answer with `rating` would — new cards
+    leave the new state, FSRS (when enabled) gives the card a memory state. Works whatever
+    the deck's daily limits are (a 0/0 preset included). 404 for an unknown card (nothing
+    is graded), 422 for an unknown rating.
+
+    Suspended cards stay suspended. The backend's grade_now UNSUSPENDS a suspended card
+    (anki 25.09.4: queue -1 becomes learning/review), so the cards that were suspended
+    before are re-suspended afterwards; the envelope's flags are the union of both ops.
+    A buried card is NOT re-buried: grade_now unburies it (verified, queue -3 becomes 1)
+    and only suspension is restored here."""
+    if body.rating not in _RATINGS:
+        raise HTTPException(status_code=422, detail=f"rating must be one of {list(_RATINGS)}")
+    cids = parse_ids(body.card_ids)
+    with handle.locked() as col:
+        queues = dict(col.db.all(f"select id, queue from cards where id in {ids2str(cids)}"))
+        missing = next((cid for cid in cids if cid not in queues), None)
+        if missing is not None:
+            raise HTTPException(status_code=404, detail=f"card {missing} not found")
+        suspended = [cid for cid, queue in queues.items() if queue == QUEUE_TYPE_SUSPENDED]
+        changes = col._backend.grade_now(card_ids=cids, rating=_RATINGS[body.rating])
+        if suspended:
+            resuspended = col.sched.suspend_cards(suspended).changes
+            for name in changes.DESCRIPTOR.fields_by_name:
+                setattr(changes, name, getattr(changes, name) or getattr(resuspended, name))
+        return mutation(changes)
 
 
 @router.post("/set-due-date")
