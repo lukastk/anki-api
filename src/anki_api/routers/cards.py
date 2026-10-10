@@ -3,8 +3,10 @@ on a card-id selection. Card info is `GET /stats/card/{id}` (structured)."""
 
 from __future__ import annotations
 
+import json
+
 from anki.utils import ids2str
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 
 from ..collection_handle import CollectionHandle
@@ -44,6 +46,15 @@ class PatchCard(RequestModel):
     factor: int | None = Field(default=None, ge=0, description="ease per-mille, e.g. 2500")
     reps: int | None = Field(default=None, ge=0)
     lapses: int | None = Field(default=None, ge=0)
+
+
+class CustomData(RequestModel):
+    custom_data: str = Field(description="a JSON object as a string; keys <= 8 bytes, whole string <= 100 bytes")
+
+
+CUSTOM_DATA_MAX_BYTES = 100
+CUSTOM_DATA_MAX_KEY_BYTES = 8
+"""Anki's limits on a card's customData (rslib/src/storage/card/data.rs)."""
 
 
 REVLOG_BOUNDS_CHUNK = 5000
@@ -95,6 +106,12 @@ def _card_view(card, review_bounds: tuple[int, int] | None) -> dict:
         "flag": card.user_flag(),
         "first_review": first_review,
         "latest_review": latest_review,
+        "custom_data": card.custom_data,
+        "memory_state": (
+            {"stability": card.memory_state.stability, "difficulty": card.memory_state.difficulty}
+            if card.memory_state is not None else None
+        ),
+        "desired_retention": card.desired_retention,
         "question": card.question(),
         "answer": card.answer(),
     }
@@ -141,6 +158,43 @@ def patch_card(card_id: str, body: PatchCard, handle: CollectionHandle = Depends
         if body.lapses is not None:
             card.lapses = body.lapses
         return mutation(col.update_card(card))
+
+
+def _validate_custom_data(value: str) -> None:
+    """422 unless `value` is what Anki accepts as customData: a JSON object, each top-level
+    key at most 8 bytes, the whole string at most 100 bytes (UTF-8)."""
+    if len(value.encode()) > CUSTOM_DATA_MAX_BYTES:
+        raise HTTPException(status_code=422, detail=f"custom_data is over {CUSTOM_DATA_MAX_BYTES} bytes")
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"custom_data is not JSON: {e}")
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="custom_data must be a JSON object")
+    long_keys = [k for k in parsed if len(k.encode()) > CUSTOM_DATA_MAX_KEY_BYTES]
+    if long_keys:
+        raise HTTPException(status_code=422, detail=f"custom_data keys over {CUSTOM_DATA_MAX_KEY_BYTES} bytes: {long_keys}")
+
+
+def _write_custom_data(handle: CollectionHandle, card_id: str, value: str) -> Mutation:
+    cid = parse_id(card_id)
+    with handle.locked() as col:
+        card = col.get_card(cid)
+        card.custom_data = value
+        return mutation(col.update_card(card))
+
+
+@router.put("/{card_id}/custom-data")
+def set_custom_data(card_id: str, body: CustomData, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Replace the card's customData (the per-card JSON that custom schedulers read as `customData`). 422 outside Anki's limits."""
+    _validate_custom_data(body.custom_data)
+    return _write_custom_data(handle, card_id, body.custom_data)
+
+
+@router.delete("/{card_id}/custom-data")
+def clear_custom_data(card_id: str, handle: CollectionHandle = Depends(get_handle)) -> Mutation:
+    """Clear the card's customData."""
+    return _write_custom_data(handle, card_id, "")
 
 
 @router.post("/actions/suspend")

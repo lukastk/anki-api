@@ -157,3 +157,54 @@ def test_bulk_views_join_the_revlog_across_chunks(api, monkeypatch):
     assert views[0]["first_review"] == int(api.get(f"/stats/card/{ids[0]}").json()["first_review"])
     assert views[1]["first_review"] is None
     assert views[2]["first_review"] == int(api.get(f"/stats/card/{ids[2]}").json()["first_review"])
+
+
+# --- custom_data / memory_state / desired_retention ------------------------------------
+
+def test_card_view_has_custom_data_and_fsrs_fields(api):
+    card = api.make_note(deck="D")["card_ids"][0]
+    view = api.get(f"/cards/{card}").json()
+    assert view["custom_data"] == ""
+    assert view["memory_state"] is None and view["desired_retention"] is None
+    [bulk] = api.post("/cards/views", json={"card_ids": [card]}).json()
+    assert bulk == view
+
+
+def test_custom_data_round_trip_and_clear(api):
+    card = api.make_note(deck="D", front="a")["card_ids"][0]
+    other = api.make_note(deck="D", front="b")["card_ids"][0]
+    payload = '{"m":1,"atom":"x7"}'
+    out = api.put(f"/cards/{card}/custom-data", json={"custom_data": payload})
+    assert out.status_code == 200, out.text
+    assert out.json()["changes"]["card"] is True
+    assert api.get(f"/cards/{card}").json()["custom_data"] == payload
+    assert api.get(f"/cards/{other}").json()["custom_data"] == ""
+
+    assert api.delete(f"/cards/{card}/custom-data").status_code == 200
+    assert api.get(f"/cards/{card}").json()["custom_data"] == ""
+
+
+def test_custom_data_limits_and_shape(api):
+    card = api.make_note(deck="D")["card_ids"][0]
+    api.put(f"/cards/{card}/custom-data", json={"custom_data": '{"ok":1}'})
+    bad = [
+        '{"ninechars":1}',            # key over 8 bytes
+        '{"é" : 1, "kéyé": 2, "ééééé": 3}',  # "ééééé" is 5 chars but 10 bytes
+        '{"a":"' + "x" * 95 + '"}',   # whole string over 100 bytes
+        '[1, 2]',                     # not an object
+        '"text"',
+        'not json',
+    ]
+    for value in bad:
+        out = api.put(f"/cards/{card}/custom-data", json={"custom_data": value})
+        assert out.status_code == 422, (value, out.text)
+    assert api.get(f"/cards/{card}").json()["custom_data"] == '{"ok":1}'  # unchanged
+    eight = '{"abcdefgh":"' + "x" * 85 + '"}'
+    assert len(eight.encode()) == 100
+    assert api.put(f"/cards/{card}/custom-data", json={"custom_data": eight}).status_code == 200
+    assert api.get(f"/cards/{card}").json()["custom_data"] == eight
+
+
+def test_custom_data_unknown_card_is_404(api):
+    assert api.put("/cards/424242/custom-data", json={"custom_data": "{}"}).status_code == 404
+    assert api.delete("/cards/424242/custom-data").status_code == 404
