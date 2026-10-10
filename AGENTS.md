@@ -118,6 +118,11 @@ fixtures and a `V1Client` wrapper.
   skip unknown note/card ids, the CSV importer creates a deck NAMED after an unknown deck
   id, `set_config_id_for_deck_dict` stores a dangling preset id. Check existence first and
   404 (see `_build_limit`, `preset_or_404`, `_select_deck`).
+- **`grade_now` unsuspends and unburies** (anki 25.09.4: queue -1/-3 becomes learning);
+  `/review/grade-now` re-suspends what was suspended. **A raw `col.db` write only bumps
+  `col.mod` inside `col.db.transact(...)`** — a bare `executemany` autocommits without it,
+  so incremental sync could miss the change (see `routers/revlog.py`). The backend rounds a
+  stored FSRS memory state (stability 4 dp, difficulty 3 dp): report the re-read card.
 
 ## Limitations
 

@@ -7,7 +7,7 @@ key it does not declare (422, `extra_forbidden`, naming the key), at every nesti
 level; the three plain-dict bodies (`PUT /v1/preferences`,
 `PUT /v1/stats/graph-preferences`, `PUT /v1/deck-presets/{id}`) are checked against
 the stored shape and answer 422 the same way.
-**129 endpoints across 21 domains.**
+**137 endpoints across 22 domains.**
 
 
 ## cards
@@ -24,8 +24,10 @@ the stored shape and answer 422 the same way.
 | `POST` | `/v1/cards/actions/unbury` |  |
 | `POST` | `/v1/cards/actions/unsuspend` |  |
 | `POST` | `/v1/cards/views` | Bulk card views for a card-id selection, with each card's first_review/latest_review (epoch seconds as JSON integers, null when never reviewed; `/v1/stats/card/{id}` reports the same values as strings — protobuf int64 — so compare as numbers). |
-| `GET` | `/v1/cards/{card_id}` | One card's view — the same shape as an element of POST /cards/views, first_review/latest_review included. |
+| `GET` | `/v1/cards/{card_id}` | One card's view — the same shape as an element of POST /cards/views, first_review/latest_review included. Views also carry `custom_data` (string, `""` when unset), `memory_state` (`{stability, difficulty}` or null) and `desired_retention` (float or null). |
 | `PATCH` | `/v1/cards/{card_id}` | Write scheduling columns directly (mutate-then-update_card). Meant for |
+| `PUT` | `/v1/cards/{card_id}/custom-data` | Replace the card's customData (a JSON object as a string). 422 unless it is an object, every key ≤ 8 bytes and the whole string ≤ 100 bytes (Anki's limits). |
+| `DELETE` | `/v1/cards/{card_id}/custom-data` | Clear the card's customData. |
 
 ## deck-presets
 
@@ -69,6 +71,7 @@ the stored shape and answer 422 the same way.
 | `PUT` | `/v1/fsrs` |  |
 | `POST` | `/v1/fsrs/compute-params` | Optimize FSRS parameters from review history. Returns an empty params list |
 | `POST` | `/v1/fsrs/evaluate` | Evaluate current params against review history (400 if history is too thin). |
+| `POST` | `/v1/fsrs/memory-state` | Recompute each card's FSRS memory state from its review log and STORE it on the card (with desired retention and decay); returns what was stored (the backend rounds on write). Null state for a card with no history. 409 when FSRS is off; 404 for an unknown card, before anything is written. |
 
 ## image-occlusion
 
@@ -149,9 +152,17 @@ the stored shape and answer 422 the same way.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/review/answer` |  |
+| `POST` | `/v1/review/grade-now` | Grade cards without showing them (Anki's Grade Now): one revlog row per card, rescheduled as an answer with `rating` would. Works under any daily limits (0/0 included). Suspended cards stay suspended (the backend unsuspends them; the endpoint re-suspends); buried cards end up unburied. 404 for an unknown card (nothing graded), 422 for an unknown rating. |
 | `GET` | `/v1/review/counts` | Today's new/learn/review counts for the current deck, or for the deck named `deck`. 404 if there is no deck of that name (it is not created). |
 | `GET` | `/v1/review/next` | The next card due for review, or null if the queue is empty. 404 if `deck` names no deck (it is not created). |
 | `POST` | `/v1/review/set-due-date` |  |
+
+## revlog
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/revlog` | Review-log rows ordered by id (epoch ms, as a string). Filters: `since_ms` (inclusive), `until_ms` (exclusive), `card_ids` (repeatable or comma-separated), `types` (repeatable). `limit` default 10000, max 100000; `truncated` is true when more rows match. |
+| `POST` | `/v1/revlog` | Insert review-log rows (usn -1, so they sync; the write marks the collection modified). All or nothing: 404 for an unknown card; 422 for an id repeated in the request, already present, or in the future, ease outside 1..4, type outside 0..3. Returns `{"inserted": n}`. |
 
 ## search
 
@@ -197,6 +208,7 @@ the stored shape and answer 422 the same way.
 | `POST` | `/v1/collection/backup` | Back up the LIVE collection to backups/ (Anki's own .colpkg backups, with its |
 | `POST` | `/v1/collection/check-database` | Tools > Check Database (fsck). Returns the report and whether it was ok. |
 | `GET` | `/v1/collection/empty-cards` | Report of notes that produce empty cards (Tools > Empty Cards). |
+| `GET` | `/v1/collection/timing` | Anki's day boundary: `days_elapsed`, `next_day_at` (end of today at the rollover hour), `now`, `created` (col.crt) — epoch seconds as strings — and `rollover_hour`. |
 | `POST` | `/v1/collection/empty-cards/remove` |  |
 | `POST` | `/v1/collection/optimize` | Vacuum/optimize the underlying database. |
 | `GET` | `/v1/health` |  |

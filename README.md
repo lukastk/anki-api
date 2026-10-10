@@ -10,8 +10,8 @@ as a backend for building a custom Anki UI.
 
 ## Status
 
-**Full feature parity** with the Anki feature set: 130 endpoints across 21
-domains, backed by a rigorous test suite (211 pytest tests — unit + e2e in-process
+**Full feature parity** with the Anki feature set: 137 endpoints across 22
+domains, backed by a rigorous test suite (355 pytest tests — unit + e2e in-process
 over the ASGI app, plus a real-`uvicorn` smoke test and a live sync test against a
 self-hosted sync server).
 
@@ -29,6 +29,14 @@ controls, filtered decks & custom study, undo/redo, collection maintenance (chec
 db / optimize / empty cards), **sync** (AnkiWeb or self-hosted), image occlusion
 authoring, type-in-the-answer, TTS, and UI-chrome helpers (timespan formatting,
 markdown, help links).
+
+**Mosaic V4 additions** (for scheduling cards nobody studies directly):
+`POST /review/grade-now` (Anki's Grade Now — grade without showing; suspended cards
+stay suspended, and it works under a 0/0 preset), `GET /revlog` (bulk review-log
+read) and `POST /revlog` (insert history rows that sync), `POST /fsrs/memory-state`
+(recompute and store a card's FSRS state from its review log), card views carrying
+`custom_data` / `memory_state` / `desired_retention` with `PUT`/`DELETE
+/cards/{id}/custom-data`, and `GET /collection/timing` (Anki's day boundary).
 
 ## Install & run
 
