@@ -7,9 +7,9 @@ license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 keywords = ["anki", "spaced-repetition", "flashcards", "rest", "api", "fastapi"]
 # The anki wheel ships no CPython 3.13 build yet; 3.12 is the safe ceiling (see _dev/experiments/00).
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.10,<3.13"
 dependencies = [
-    "anki>=25.9,<26",
+    "anki>=26.9,<27",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
