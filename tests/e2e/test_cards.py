@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from anki_api.routers import cards as cards_router
@@ -131,16 +133,34 @@ def test_views_carry_first_and_latest_review_matching_card_stats(api):
     assert api.get(f"/cards/{fresh}").json()["first_review"] is None
 
 
-def test_a_manual_revlog_row_counts_as_the_first_review_as_card_stats_counts_it(api):
-    """set-due-date on a never-answered card writes a MANUAL revlog row (type 4), and Anki's
-    card info dates `first_review` from it while `reviews` stays 0. The view follows card info
-    rather than second-guessing it; `reps` is what says whether the learner has answered."""
-    card_id = api.make_note(deck="Restored")["card_ids"][0]
-    api.post("/review/set-due-date", json={"card_ids": [card_id], "days": "5!"})
-    view = api.get(f"/cards/{card_id}").json()
-    stats = api.get(f"/stats/card/{card_id}").json()
+def test_a_manual_revlog_row_is_not_a_review_as_card_stats_does_not_count_it(api):
+    """set-due-date writes a MANUAL revlog row (type 4, ease 0). Anki 26's card info dates
+    `first_review` / `latest_review` from RATED rows only (ease > 0), so a manual row is
+    not a review: a card that was only rescheduled has neither, and a manual row after a
+    rated one does not move `latest_review`. (Anki 25 counted the manual row: a card
+    rescheduled before it was ever answered got a `first_review`. This test asserted that
+    until the anki 26.09.3 pin.) The view follows card info rather than second-guessing
+    it; the manual row itself is still returned by GET /revlog with type 4."""
+    only_rescheduled = api.make_note(deck="Restored", front="r")["card_ids"][0]
+    api.post("/review/set-due-date", json={"card_ids": [only_rescheduled], "days": "5!"})
+    view = api.get(f"/cards/{only_rescheduled}").json()
+    stats = api.get(f"/stats/card/{only_rescheduled}").json()
     assert view["reps"] == 0 and stats.get("reviews", 0) == 0
-    assert view["first_review"] is not None
+    assert "first_review" not in stats and "latest_review" not in stats
+    assert view["first_review"] is None and view["latest_review"] is None
+    assert [e["type"] for e in api.get("/revlog", params={"card_ids": only_rescheduled}).json()["entries"]] == [4]
+
+    # a rated row three days ago, then a manual row now: both bounds stay on the rated row
+    rated_then_manual = api.make_note(deck="Restored", front="m")["card_ids"][0]
+    three_days_ago_ms = int(time.time() * 1000) - 3 * 86_400_000
+    assert api.post("/revlog", json={"entries": [{
+        "card_id": rated_then_manual, "id_ms": str(three_days_ago_ms), "ease": 3, "interval": 1,
+        "last_interval": 0, "factor": 2500, "time_ms": 3000, "type": 1,
+    }]}).status_code == 200
+    api.post("/review/set-due-date", json={"card_ids": [rated_then_manual], "days": "5!"})
+    view = api.get(f"/cards/{rated_then_manual}").json()
+    stats = api.get(f"/stats/card/{rated_then_manual}").json()
+    assert view["first_review"] == view["latest_review"] == three_days_ago_ms // 1000
     assert view["first_review"] == int(stats["first_review"])
     assert view["latest_review"] == int(stats["latest_review"])
 

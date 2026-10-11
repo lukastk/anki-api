@@ -23,7 +23,7 @@ the stored shape and answer 422 the same way.
 | `POST` | `/v1/cards/actions/suspend` |  |
 | `POST` | `/v1/cards/actions/unbury` |  |
 | `POST` | `/v1/cards/actions/unsuspend` |  |
-| `POST` | `/v1/cards/views` | Bulk card views for a card-id selection, with each card's first_review/latest_review (epoch seconds as JSON integers, null when never reviewed; `/v1/stats/card/{id}` reports the same values as strings — protobuf int64 — so compare as numbers). |
+| `POST` | `/v1/cards/views` | Bulk card views for a card-id selection, with each card's first_review/latest_review (epoch seconds as JSON integers, from RATED revlog rows only — a MANUAL set-due-date/forget row does not count, as in Anki 26's card info — null when there is none; `/v1/stats/card/{id}` reports the same values as strings — protobuf int64 — so compare as numbers). |
 | `GET` | `/v1/cards/{card_id}` | One card's view — the same shape as an element of POST /cards/views, first_review/latest_review included. Views also carry `custom_data` (string, `""` when unset), `memory_state` (`{stability, difficulty}` or null) and `desired_retention` (float or null). |
 | `PATCH` | `/v1/cards/{card_id}` | Write scheduling columns directly (mutate-then-update_card). Meant for |
 | `PUT` | `/v1/cards/{card_id}/custom-data` | Replace the card's customData (a JSON object as a string). 422 unless it is an object, every key ≤ 8 bytes and the whole string ≤ 100 bytes (Anki's limits). |

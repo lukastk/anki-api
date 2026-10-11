@@ -64,24 +64,23 @@ chunk only keeps one statement's text bounded for a very large selection."""
 
 
 def _review_bounds(col, cids: list[int]) -> dict[int, tuple[int, int]]:
-    """card id → (first, latest) revlog entry time in epoch SECONDS, for every card in
-    `cids` that has a revlog row at all — one grouped query per chunk of ids, never a query
+    """card id → (first, latest) RATED revlog entry time in epoch SECONDS, for every card in
+    `cids` that has a rated revlog row — one grouped query per chunk of ids, never a query
     per card.
 
     The numbers are the ones `GET /v1/stats/card/{id}` (`Collection.card_stats_data`)
     reports as `first_review` / `latest_review`, so a caller can check one against the
-    other: revlog ids are milliseconds, floored to seconds, over EVERY row of the card's
-    revlog — MANUAL rows (revlog `type` 4: set-due-date, forget) included, because Anki's
-    own card info counts them (verified on a card rescheduled before it was ever answered:
-    `card_stats_data` reports `first_review` set and `reviews` 0). So `first_review` is the
-    first time the scheduler touched the card, which is the first time it was shown for
-    every card the learner answered before anyone rescheduled it; a caller that needs
-    "has the learner answered it" reads `reps`, and one that needs the rows themselves
-    reads the stats endpoint's `revlog`."""
+    other: revlog ids are milliseconds, floored to seconds, over the rows that carry a
+    rating (`ease` > 0). That is Anki 26's rule (verified on anki 26.09.3 with raw rows of
+    every type: a row counts exactly when its ease is non-zero, whatever its `type`), so the
+    MANUAL rows set-due-date and forget write (type 4, ease 0) do not count: a card that was
+    only ever rescheduled has null bounds, and a manual row before or after an answer moves
+    neither bound. Anki 25 counted every row, manual ones included. A caller that needs
+    the unrated rows reads `GET /v1/revlog` (they come back with type 4)."""
     out: dict[int, tuple[int, int]] = {}
     for start in range(0, len(cids), REVLOG_BOUNDS_CHUNK):
         chunk = cids[start:start + REVLOG_BOUNDS_CHUNK]
-        rows = col.db.all(f"select cid, min(id) / 1000, max(id) / 1000 from revlog where cid in {ids2str(chunk)} group by cid")
+        rows = col.db.all(f"select cid, min(id) / 1000, max(id) / 1000 from revlog where cid in {ids2str(chunk)} and ease > 0 group by cid")
         for cid, first, latest in rows:
             out[cid] = (first, latest)
     return out
@@ -89,7 +88,7 @@ def _review_bounds(col, cids: list[int]) -> dict[int, tuple[int, int]]:
 
 def _card_view(card, review_bounds: tuple[int, int] | None) -> dict:
     """One card's view. `review_bounds` is `_review_bounds(...)` for this card, or None when
-    it has no revlog row, in which case `first_review` and `latest_review` are null."""
+    it has no rated revlog row, in which case `first_review` and `latest_review` are null."""
     first_review, latest_review = review_bounds if review_bounds is not None else (None, None)
     return {
         "id": str(card.id),
@@ -123,8 +122,8 @@ def card_views(body: CardIds, handle: CollectionHandle = Depends(get_handle)) ->
 
     Avoids N round-trips — e.g. when snapshotting scheduling state for a whole search, or
     when replaying the order a learner met a deck's cards: `first_review` and
-    `latest_review` are the same numbers `GET /v1/stats/card/{id}` reports (MANUAL revlog
-    rows included, see `_review_bounds`), computed for the whole selection with one grouped
+    `latest_review` are the same numbers `GET /v1/stats/card/{id}` reports (rated revlog
+    rows only, MANUAL rows excluded as Anki 26 excludes them; see `_review_bounds`), computed for the whole selection with one grouped
     query against the revlog rather than one stats call per card."""
     with handle.locked() as col:
         cids = parse_ids(body.card_ids)
