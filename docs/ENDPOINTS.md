@@ -7,7 +7,7 @@ key it does not declare (422, `extra_forbidden`, naming the key), at every nesti
 level; the three plain-dict bodies (`PUT /v1/preferences`,
 `PUT /v1/stats/graph-preferences`, `PUT /v1/deck-presets/{id}`) are checked against
 the stored shape and answer 422 the same way.
-**137 endpoints across 22 domains.**
+**138 endpoints across 22 domains.**
 
 
 ## cards
@@ -108,6 +108,7 @@ the stored shape and answer 422 the same way.
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/notes` |  |
+| `POST` | `/v1/notes/views` | Bulk note read. Body `{"note_ids": [...]}` (at most 1000) → `{"notes": [...]}`, each element exactly what `GET /v1/notes/{id}` returns (`id`, `notetype`, `notetype_id`, `fields`, `tags`, `card_ids`), in the order asked; a repeated id is returned again. **404** naming the first id that is not a note (nothing returned); **400** for more than 1000 ids or a non-integer id. One collection lock for the whole batch. |
 | `GET` | `/v1/notes/find-duplicates` | Notes sharing the same value in `field` (Notes > Find Duplicates). 404 if no notetype has a field of that name (matched case-insensitively). |
 | `DELETE` | `/v1/notes/{note_id}` |  |
 | `GET` | `/v1/notes/{note_id}` |  |
