@@ -128,7 +128,7 @@ def grade_now(body: GradeNow, handle: CollectionHandle = Depends(get_handle)) ->
     is graded), 422 for an unknown rating.
 
     Suspended cards stay suspended. The backend's grade_now UNSUSPENDS a suspended card
-    (anki 25.09.4: queue -1 becomes learning/review), so the cards that were suspended
+    (anki 25.09.4 and 26.09.3: queue -1 becomes learning/review), so the cards that were suspended
     before are re-suspended afterwards; the envelope's flags are the union of both ops.
     A buried card is NOT re-buried: grade_now unburies it (verified, queue -3 becomes 1)
     and only suspension is restored here."""

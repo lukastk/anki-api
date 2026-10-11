@@ -40,8 +40,10 @@ read) and `POST /revlog` (insert history rows that sync), `POST /fsrs/memory-sta
 
 ## Install & run
 
-Requires [`uv`](https://docs.astral.sh/uv/). Python is pinned to `<3.13` (the
-`anki` wheel has no 3.13 build yet; `uv` selects 3.12 automatically).
+Requires [`uv`](https://docs.astral.sh/uv/). Built on the `anki` package **26.x**
+(`anki>=26.9,<27`, locked to 26.9.3). Python **`>=3.10,<3.13`**: anki 26 needs
+3.10+, and the 3.13 ceiling is kept until the server is tested there; `uv` selects 3.12
+automatically.
 
 ```sh
 uv sync
@@ -150,7 +152,7 @@ discarded; a local `.colpkg` backup is taken first and `ANKI_API_AUTOSYNC_NOTIFY
 - **Image Occlusion** authoring is supported, but occlusion *geometry* is the
   caller's responsibility (the API takes structured shapes; it doesn't run the
   drawing editor).
-- **Python `<3.13`** until an `anki` 3.13 wheel ships.
+- **Python `>=3.10,<3.13`.** anki 26 needs 3.10+; 3.13 is not yet tested.
 
 ## Development
 

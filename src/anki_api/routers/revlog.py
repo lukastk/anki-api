@@ -94,7 +94,7 @@ def insert_revlog(body: InsertRevlog, handle: CollectionHandle = Depends(get_han
     The write runs in `col.db.transact` (the backend's db_begin/db_commit), which is also
     what marks the collection modified: the commit bumps `col.mod`, so the next incremental
     sync sees a change. A bare `col.db.executemany` outside a transaction autocommits
-    WITHOUT bumping `col.mod` (verified on anki 25.09.4). `col.save()` is a deprecated no-op
+    WITHOUT bumping `col.mod` (verified on anki 25.09.4 and 26.09.3). `col.save()` is a deprecated no-op
     and is not called anywhere in this code base."""
     rows = []
     seen: set[int] = set()

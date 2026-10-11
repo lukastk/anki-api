@@ -13,7 +13,7 @@ across 21 domains; full feature parity with Anki.
 ## Commands
 
 ```sh
-uv sync                       # install (Python pinned <3.13; uv picks 3.12)
+uv sync                       # install (anki>=26.9,<27; Python >=3.10,<3.13; uv picks 3.12)
 uv run anki-api               # run server (needs ANKI_API_COLLECTION env)
 uv run pytest                 # full suite (unit + e2e, in-process via TestClient)
 uv run pytest tests/unit      # fast unit tests
@@ -118,7 +118,7 @@ fixtures and a `V1Client` wrapper.
   skip unknown note/card ids, the CSV importer creates a deck NAMED after an unknown deck
   id, `set_config_id_for_deck_dict` stores a dangling preset id. Check existence first and
   404 (see `_build_limit`, `preset_or_404`, `_select_deck`).
-- **`grade_now` unsuspends and unburies** (anki 25.09.4: queue -1/-3 becomes learning);
+- **`grade_now` unsuspends and unburies** (anki 25.09.4 and 26.09.3: queue -1/-3 becomes learning);
   `/review/grade-now` re-suspends what was suspended. **A raw `col.db` write only bumps
   `col.mod` inside `col.db.transact(...)`** — a bare `executemany` autocommits without it,
   so incremental sync could miss the change (see `routers/revlog.py`). The backend rounds a

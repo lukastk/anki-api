@@ -6,7 +6,8 @@ readme = "README.md"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 keywords = ["anki", "spaced-repetition", "flashcards", "rest", "api", "fastapi"]
-# The anki wheel ships no CPython 3.13 build yet; 3.12 is the safe ceiling (see _dev/experiments/00).
+# anki 26.x needs Python >= 3.10 (its wheels are cp310-abi3). The <3.13 ceiling is ours, kept from
+# _dev/experiments/00 (anki 25 had no 3.13 wheel); 3.13 is untested here, so uv picks 3.12.
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "anki>=26.9,<27",
