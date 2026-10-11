@@ -6,9 +6,8 @@ def test_create_filtered_gathers_cards(api):
         api.make_note(deck="Src", front=f"q{i}")
     out = api.post("/filtered-decks", json={"name": "Filt", "search": "deck:Src"}).json()
     assert out["count"] == 3
-    fid = out["id"]
     # the gathered cards now live in the filtered deck
-    assert api.post("/search/cards", json={"query": f'deck:Filt'}).json()["count"] == 3
+    assert api.post("/search/cards", json={"query": "deck:Filt"}).json()["count"] == 3
 
 
 def test_rebuild_and_empty(api):

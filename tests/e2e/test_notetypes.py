@@ -20,8 +20,6 @@ Contract:
   POST   /notetypes/change               {note_ids, old_notetype_id, new_notetype_id, ...} -> Mutation
 """
 
-import pytest
-
 
 def _id_by_name(api, name: str) -> str:
     return next(n["id"] for n in api.get("/notetypes").json() if n["name"] == name)
