@@ -7,6 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from .collection_handle import CollectionHandle
 from .config import Settings
@@ -59,6 +60,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     register_exception_handlers(app)
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.cors_origins),
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+            allow_headers=["Content-Type"],
+            allow_credentials=False,
+            max_age=600,
+        )
 
     for module in (system, decks, deck_presets, notes, notetypes, cards, review, revlog, search, tags,
                    stats, preferences, media, import_export, fsrs, filtered_decks, sync,

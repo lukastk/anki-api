@@ -73,6 +73,41 @@ collection the Anki desktop app has open** — the backend takes an exclusive lo
 | `ANKI_API_AUTOSYNC_FULL` | `off` | What the autosync loop does when a full sync is *required*. `off`: log it, leave the direction to a manual call. `download`: auto-resolve by adopting the server (full-download), but only when this collection has no un-synced schema change of its own. Auto-upload is never a policy. Use only where this collection is a downstream replica, not a primary you review on. |
 | `ANKI_API_AUTOSYNC_NOTIFY_CMD` | *(unset)* | Best-effort notifier run as `<cmd> <title> <body>` when the autosync loop auto-resolves or is blocked on a full sync. |
 | `ANKI_API_SYNC_AUTH_PATH` | *(next to collection)* | Where the persisted sync token (`0600`) is stored. |
+| `ANKI_API_CORS_ORIGINS` | *(unset; no cross-origin permission)* | JSON array of exact trusted browser origins, e.g. `["https://trusted.example"]`. Wildcards, `null`, credentials, paths and malformed origins are rejected. |
+
+### Explicit browser/Obsidian access (CORS)
+
+CORS is disabled by default; existing HTTP clients retain their behavior. To use
+native browser `fetch`, explicitly allow the **observed Origin header** of the
+trusted client in `ANKI_API_CORS_ORIGINS`. Do not guess an Obsidian mobile origin
+from a desktop installation. The example above is synthetic, not a mobile
+configuration recommendation. Exact application-scheme origins are accepted when
+they are non-opaque, canonical scheme/host/port tuples; the opaque origin `null`
+is never accepted. Observe the actual origin first.
+
+Configuration is a JSON array, not a comma-separated string or URL-prefix rule.
+An empty array grants no access. Duplicate values, URL credentials, wildcard
+hosts, trailing slashes, paths, queries/fragments, default-port aliases and
+malformed host/port values fail at configuration time. Programmatic callers can
+pass `Settings(..., cors_origins=(observed_origin,))`.
+
+Only existing API methods GET/POST/PUT/PATCH/DELETE and the Content-Type header
+(plus standard CORS-safelisted headers) are permitted. No wildcard methods or
+headers, credentialed CORS, cookies or Authorization permission are added.
+Preflights for other origins/methods/headers fail, and permitted responses echo
+only the exact configured origin with `Vary: Origin`.
+
+**CORS is browser read permission, not authentication or a request firewall.**
+Non-browser clients and some simple requests still reach the API; retain private
+network/access controls. Do not expose a collection publicly because CORS was
+configured. Clients should keep normal fetch redirect/error and abort behavior:
+an abort after sending a mutation does not establish that it was rolled back.
+Do not silently retry an outcome-unknown mutation or bypass CORS with a privileged
+request shim.
+
+This source capability does not configure or restart any running server.
+Production allowlist/deployment changes require explicit operator approval;
+configure it only on an isolated scratch collection during tests.
 
 ### Example
 

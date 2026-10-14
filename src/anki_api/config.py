@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
+import json
 import os
+import re
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,12 @@ class Settings:
     # Failures are swallowed — a notifier must never break syncing.
     autosync_notify_cmd: str | None = None
 
+    # Browser access is opt-in; never wildcard/null origins or credentialed CORS.
+    cors_origins: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _validate_cors_origins(self.cors_origins)
+
     @property
     def resolved_sync_auth_path(self) -> str:
         """Where the persisted sync auth token lives (defaults next to the collection)."""
@@ -71,6 +81,7 @@ class Settings:
             autosync_full=_env_choice("ANKI_API_AUTOSYNC_FULL", default="off",
                                       choices=_AUTOSYNC_FULL_CHOICES),
             autosync_notify_cmd=os.environ.get("ANKI_API_AUTOSYNC_NOTIFY_CMD") or None,
+            cors_origins=_cors_origins_from_env(),
         )
 
 
@@ -93,3 +104,54 @@ def _env_choice(name: str, *, default: str, choices: frozenset[str]) -> str:
             f"{name}={val!r} is invalid; expected one of {sorted(choices)}."
         )
     return val
+
+
+def _validate_cors_origins(origins: tuple[str, ...]) -> None:
+    """Require exact serialized origins, not URL prefixes, globs or opaque origins."""
+    if not isinstance(origins, tuple) or any(not isinstance(o, str) for o in origins):
+        raise ValueError("CORS origins must be a tuple of exact origin strings")
+    if len(set(origins)) != len(origins):
+        raise ValueError("Duplicate CORS origins")
+    for origin in origins:
+        if not origin.isascii() or any(c.isspace() or ord(c) < 32 for c in origin) or any(c in origin for c in '*%\\'):
+            raise ValueError(f"Invalid CORS origin: {origin!r}")
+        try:
+            parsed = urlsplit(origin)
+            host, port = parsed.hostname, parsed.port
+            if (not host or parsed.username is not None or parsed.password is not None
+                    or parsed.path or parsed.query or parsed.fragment
+                    or parsed.scheme in ('file', 'data', 'javascript', 'about', 'blob')
+                    or not re.fullmatch(r'[a-z][a-z0-9+.-]*', parsed.scheme)):
+                raise ValueError("Not a serialized tuple origin")
+            if ':' in host:
+                ipaddress.IPv6Address(host)
+                authority = f'[{host}]'
+            else:
+                if re.fullmatch(r'[0-9.]+', host):
+                    ipaddress.IPv4Address(host)
+                elif any(not re.fullmatch(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?', label) for label in host.split('.')):
+                    raise ValueError("Invalid origin hostname")
+                authority = host
+            if port is not None:
+                if port == 0 or (parsed.scheme, port) in (('http', 80), ('https', 443)):
+                    raise ValueError("Use the browser's serialized origin without a default port")
+                authority += f':{port}'
+            if origin != f'{parsed.scheme}://{authority}':
+                raise ValueError("Origin must use exact canonical scheme/host/port")
+        except ValueError as error:
+            raise ValueError(f"Invalid CORS origin {origin!r}: {error}") from error
+
+
+def _cors_origins_from_env() -> tuple[str, ...]:
+    raw = os.environ.get('ANKI_API_CORS_ORIGINS')
+    if raw is None:
+        return ()
+    try:
+        values = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError('ANKI_API_CORS_ORIGINS must be a JSON array of exact trusted origins') from error
+    if not isinstance(values, list) or any(not isinstance(v, str) for v in values):
+        raise ValueError('ANKI_API_CORS_ORIGINS must be a JSON array of exact trusted origins')
+    origins = tuple(values)
+    _validate_cors_origins(origins)
+    return origins
