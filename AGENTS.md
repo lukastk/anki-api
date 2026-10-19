@@ -87,8 +87,9 @@ fixtures and a `V1Client` wrapper.
    patterns above), register it in `app.py`'s import + `include_router` loop.
    Put literal routes (e.g. `/stock`, `/change-info`) BEFORE `/{id}` routes.
 4. Run `uv run pytest tests/e2e/test_<domain>.py`, then the full suite.
-5. After changing routes, regenerate `docs/ENDPOINTS.md` (the generator is the
-   inline script in the "Add docs" commit; or just describe new routes there).
+5. After changing routes, update `docs/ENDPOINTS.md` by hand. There is no generator
+   checked into this repo — an earlier version of this step pointed at an inline
+   script that only ever existed inside one commit's diff, so it could not be run.
 6. Commit messages are written as a **prompt** to recreate the work.
 
 ## Gotchas learned during the build
