@@ -10,8 +10,8 @@ as a backend for building a custom Anki UI.
 
 ## Status
 
-**Full feature parity** with the Anki feature set: 138 endpoints across 22
-domains, backed by a rigorous test suite (361 pytest tests — unit + e2e in-process
+**Full feature parity** with the Anki feature set: 139 endpoints across 22
+domains, backed by a rigorous test suite (406 pytest tests — unit + e2e in-process
 over the ASGI app, plus a real-`uvicorn` smoke test and a live sync test against a
 self-hosted sync server).
 
@@ -36,9 +36,10 @@ stay suspended, and it works under a 0/0 preset), `GET /revlog` (bulk review-log
 read) and `POST /revlog` (insert history rows that sync), `POST /fsrs/memory-state`
 (recompute and store a card's FSRS state from its review log), card views carrying
 `custom_data` / `memory_state` / `desired_retention` with `PUT`/`DELETE
-/cards/{id}/custom-data`, `GET /collection/timing` (Anki's day boundary), and
+/cards/{id}/custom-data`, `GET /collection/timing` (Anki's day boundary),
 `POST /notes/views` (up to 1000 notes in one read, each exactly as `GET /notes/{id}`
-returns it).
+returns it), and the per-deck "This deck" / "Today only" study limits: read on
+`GET /decks/{id}`, set or cleared with `PATCH /decks/{id}/limits`.
 
 ## Install & run
 

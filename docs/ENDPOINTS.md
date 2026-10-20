@@ -7,7 +7,7 @@ key it does not declare (422, `extra_forbidden`, naming the key), at every nesti
 level; the three plain-dict bodies (`PUT /v1/preferences`,
 `PUT /v1/stats/graph-preferences`, `PUT /v1/deck-presets/{id}`) are checked against
 the stored shape and answer 422 the same way.
-**138 endpoints across 22 domains.**
+**139 endpoints across 22 domains.**
 
 
 ## cards
@@ -49,7 +49,8 @@ the stored shape and answer 422 the same way.
 | `POST` | `/v1/decks/reparent` |  |
 | `GET` | `/v1/decks/tree` | Deck-browser tree with per-deck due/new/learn counts. |
 | `DELETE` | `/v1/decks/{deck_id}` | Delete the deck and its cards; `count` is the number of cards removed. 404 if there is no such deck. |
-| `GET` | `/v1/decks/{deck_id}` |  |
+| `GET` | `/v1/decks/{deck_id}` | One deck: `id`, `name`, `filtered`, `config_id`, `description`, and its study limits `new_limit`, `review_limit` ("This deck") and `new_limit_today`, `review_limit_today` ("Today only") — integers, or null when unset (always null on a filtered deck). A "Today only" limit reads null unless it was set on Anki's current day (`sched_timing_today().days_elapsed`, the day the scheduler compares it with; rollover hour included). 404 if there is no such deck. |
+| `PATCH` | `/v1/decks/{deck_id}/limits` | Set or clear the deck's study limits. Body: any of `new_limit`, `review_limit`, `new_limit_today`, `review_limit_today` (integer ≥ 0, or null to clear); omitted fields are left as they are. A "Today only" value is stored for Anki's current day and stops applying at the next rollover. Written through the backend's deck update, so the deck's mtime moves, usn becomes -1 and sync carries it; no other deck field changes. Returns the deck as `GET /v1/decks/{deck_id}` shows it. 404 unknown deck, 409 filtered deck, 422 negative value or unknown key. |
 | `GET` | `/v1/decks/{deck_id}/preset` | The effective deck-options preset (config group) for this deck. |
 | `POST` | `/v1/decks/{deck_id}/preset` | Assign an existing deck-options preset to this deck. 404 if the deck or the preset does not exist. |
 | `POST` | `/v1/decks/{deck_id}/rename` |  |
