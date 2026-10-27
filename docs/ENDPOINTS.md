@@ -165,6 +165,7 @@ the stored shape and answer 422 the same way.
 |---|---|---|
 | `GET` | `/v1/revlog` | Review-log rows ordered by id (epoch ms, as a string). Filters: `since_ms` (inclusive), `until_ms` (exclusive), `card_ids` (repeatable or comma-separated), `types` (repeatable). `limit` default 10000, max 100000; `truncated` is true when more rows match. |
 | `POST` | `/v1/revlog` | Insert review-log rows (usn -1, so they sync; the write marks the collection modified). All or nothing: 404 for an unknown card; 422 for an id repeated in the request, already present, or in the future, ease outside 1..4, type outside 0..3. Returns `{"inserted": n}`. |
+| `POST` | `/v1/revlog/delete-exact` | Atomically delete explicitly named orphan rows (`rows: [{id, card_id}]`). Every id and stored card id must match, and every card must be absent; 404/409 refuses the whole call before writing. Cannot erase history for a live card. |
 
 ## search
 

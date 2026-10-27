@@ -154,3 +154,48 @@ def test_ease_and_type_bounds(api):
 
 def test_empty_entries_inserts_nothing(api):
     assert api.post("/revlog", json={"entries": []}).json() == {"inserted": 0}
+
+
+# --- POST /revlog/delete-exact -------------------------------------------------------------
+
+def _orphan_row(api, *, days_ago: int):
+    made = api.make_note(deck="D", front=f"orphan-{days_ago}")
+    card = made["card_ids"][0]
+    row_id = str(_past(days_ago))
+    assert api.post("/revlog", json={"entries": [_entry(card, int(row_id))]}).status_code == 200
+    assert api.delete(f"/notes/{made['id']}").status_code == 200
+    assert api.get("/revlog", params={"card_ids": card}).json()["entries"][0]["id"] == row_id
+    return {"id": row_id, "card_id": card}
+
+
+def test_delete_exact_orphan_revlog_rows_and_leave_other_orphans(api):
+    wanted = _orphan_row(api, days_ago=3)
+    other = _orphan_row(api, days_ago=2)
+    out = api.post("/revlog/delete-exact", json={"rows": [wanted]})
+    assert out.json() == {"deleted": 1, "rows": [wanted]}
+    remaining = api.get("/revlog").json()["entries"]
+    assert wanted["id"] not in {row["id"] for row in remaining}
+    assert other["id"] in {row["id"] for row in remaining}
+
+
+def test_delete_revlog_refuses_a_row_whose_card_still_exists(api):
+    made = api.make_note(deck="D", front="live")
+    card = made["card_ids"][0]
+    row_id = str(_past(3))
+    api.post("/revlog", json={"entries": [_entry(card, int(row_id))]})
+    out = api.post("/revlog/delete-exact", json={"rows": [{"id": row_id, "card_id": card}]})
+    assert out.status_code == 409
+    assert api.get("/revlog", params={"card_ids": card}).json()["entries"][0]["id"] == row_id
+
+
+def test_delete_revlog_is_all_or_nothing_on_missing_or_mismatched_rows(api):
+    first = _orphan_row(api, days_ago=4)
+    second = _orphan_row(api, days_ago=3)
+    for bad in (
+        {"id": str(_past(2)), "card_id": second["card_id"]},
+        {"id": second["id"], "card_id": first["card_id"]},
+    ):
+        out = api.post("/revlog/delete-exact", json={"rows": [first, bad]})
+        assert out.status_code in {404, 409}
+        ids = {row["id"] for row in api.get("/revlog").json()["entries"]}
+        assert {first["id"], second["id"]} <= ids

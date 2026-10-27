@@ -1,9 +1,8 @@
-"""Review log [mosaic-v4]: bulk read of the `revlog` table, and inserting history rows.
+"""Review log [mosaic-v4]: bulk read, history replay, and exact orphan cleanup.
 
-The insert is the history replay for cards that never met the learner directly (an
-"atom" card takes the review history of the cards that teach it). There is no backend
-method for adding revlog rows, so both directions are raw SQL against `revlog` under the
-handle lock, the read following `cards._review_bounds`.
+Insert is the history replay for atom cards. Exact deletion is a deliberately narrow
+migration repair: every row is named by both ids and is deletable only while its card
+does not exist. Both writes transact raw SQL so Anki marks the collection modified.
 """
 
 from __future__ import annotations
@@ -37,6 +36,15 @@ class RevlogEntry(RequestModel):
 
 class InsertRevlog(RequestModel):
     entries: list[RevlogEntry]
+
+
+class ExactRevlogRow(RequestModel):
+    id: str
+    card_id: str
+
+
+class DeleteExactRevlog(RequestModel):
+    rows: list[ExactRevlogRow]
 
 
 def _split_ids(values: list[str] | None) -> list[int] | None:
@@ -125,3 +133,50 @@ def insert_revlog(body: InsertRevlog, handle: CollectionHandle = Depends(get_han
             f"insert into revlog ({', '.join(_COLUMNS)}) values ({placeholders})", rows,
         ))
     return {"inserted": len(rows)}
+
+
+@router.post("/delete-exact")
+def delete_exact_orphan_revlog(
+    body: DeleteExactRevlog, handle: CollectionHandle = Depends(get_handle),
+) -> dict:
+    """Delete explicitly named orphan rows, atomically.
+
+    Every request row names both its revlog id and stored card id. The entire call
+    refuses before writing if a row is absent, the card id does not match, or that
+    card currently exists. This is for removing stale history before re-importing
+    cards with reused ids; it cannot erase the history of a live card.
+    """
+    requested: list[tuple[int, int]] = []
+    seen: set[int] = set()
+    for row in body.rows:
+        rid, cid = parse_id(row.id), parse_id(row.card_id)
+        if rid in seen:
+            raise HTTPException(status_code=422, detail=f"revlog id {rid} appears more than once in the request")
+        seen.add(rid)
+        requested.append((rid, cid))
+    if not requested:
+        return {"deleted": 0, "rows": []}
+    with handle.locked() as col:
+        stored = dict(col.db.all(
+            f"select id, cid from revlog where id in {ids2str([rid for rid, _ in requested])}",
+        ))
+        for rid, cid in requested:
+            if rid not in stored:
+                raise HTTPException(status_code=404, detail=f"revlog id {rid} not found")
+            if stored[rid] != cid:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"revlog id {rid} belongs to card {stored[rid]}, not requested card {cid}",
+                )
+        live = set(col.db.list(
+            f"select id from cards where id in {ids2str([cid for _, cid in requested])}",
+        ))
+        if live:
+            raise HTTPException(
+                status_code=409, detail=f"refusing to delete history for live card(s): {', '.join(map(str, sorted(live)))}",
+            )
+        col.db.transact(lambda: col.db.executemany(
+            "delete from revlog where id = ? and cid = ?", requested,
+        ))
+    rows = [{"id": str(rid), "card_id": str(cid)} for rid, cid in requested]
+    return {"deleted": len(rows), "rows": rows}
