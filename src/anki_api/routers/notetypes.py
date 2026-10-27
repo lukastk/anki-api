@@ -12,6 +12,7 @@ import copy
 
 from anki import stdmodels
 from anki.consts import MODEL_CLOZE
+from anki.utils import ids2str
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..collection_handle import CollectionHandle
@@ -78,6 +79,12 @@ class ChangeNotetype(RequestModel):
     new_notetype_id: str
     new_fields: list[int] | None = None
     new_templates: list[int] | None = None
+
+
+class ChangeIdenticalNotetype(RequestModel):
+    note_ids: list[str]
+    expected_source_notetype_id: str
+    target_notetype_id: str
 
 
 # --- helpers ---
@@ -296,6 +303,50 @@ def remove_template(notetype_id: str, template_name: str, handle: CollectionHand
 
 
 # --- change notetype ---
+
+@router.post("/actions/change-identical")
+def change_identical_notetype(
+    body: ChangeIdenticalNotetype, handle: CollectionHandle = Depends(get_handle),
+) -> Mutation:
+    """Move explicitly named notes only between byte-identical notetype schemas.
+
+    This migration-safe form validates every note's current notetype and compares
+    ordered fields, templates, CSS and type before calling Anki's native operation.
+    """
+    note_ids = parse_ids(body.note_ids)
+    if not note_ids:
+        raise HTTPException(status_code=422, detail="note_ids must not be empty")
+    if len(note_ids) != len(set(note_ids)):
+        raise HTTPException(status_code=422, detail="note_ids contains duplicates")
+    old_id = parse_id(body.expected_source_notetype_id)
+    new_id = parse_id(body.target_notetype_id)
+    if old_id == new_id:
+        raise HTTPException(status_code=422, detail="source and target notetype must differ")
+    with handle.locked() as col:
+        old, new = _get(col, old_id), _get(col, new_id)
+        old_view, new_view = _view(old), _view(new)
+        schema_keys = ("type", "sort_field_index", "css", "fields", "templates")
+        if any(old_view[key] != new_view[key] for key in schema_keys):
+            raise HTTPException(
+                status_code=409, detail="source and target fields, templates, CSS, or type differ",
+            )
+        rows = dict(col.db.all(f"select id, mid from notes where id in {ids2str(note_ids)}"))
+        missing = next((nid for nid in note_ids if nid not in rows), None)
+        if missing is not None:
+            raise HTTPException(status_code=404, detail=f"note {missing} not found")
+        wrong = next((nid for nid in note_ids if rows[nid] != old_id), None)
+        if wrong is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"note {wrong} has notetype {rows[wrong]}, expected source {old_id}",
+            )
+        info = col.models.change_notetype_info(old_notetype_id=old_id, new_notetype_id=new_id)
+        req = info.input
+        req.note_ids[:] = note_ids
+        req.new_fields[:] = range(len(new_view["fields"]))
+        req.new_templates[:] = range(len(new_view["templates"]))
+        return mutation(col.models.change_notetype_of_notes(req), count=len(note_ids))
+
 
 @router.post("/change-info")
 def change_info(body: ChangeInfo, handle: CollectionHandle = Depends(get_handle)) -> dict:

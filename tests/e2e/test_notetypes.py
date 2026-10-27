@@ -253,3 +253,55 @@ def test_change_notetype_applies_an_explicit_field_map(api):
         "note_ids": [note["id"]], "old_notetype_id": old, "new_notetype_id": new, "new_fields": [1, 0],
     })
     assert api.get(f"/notes/{note['id']}").json()["fields"] == {"Front": "was-back", "Back": "was-front"}
+
+
+def _note_on_cloned_basic(api, clone_name="ImportedBasic"):
+    basic = _id_by_name(api, "Basic")
+    cloned = api.post(f"/notetypes/{basic}/clone", json={"name": clone_name}).json()["id"]
+    note = api.post("/notes", json={
+        "deck": "D", "notetype": clone_name, "fields": {"Front": "f", "Back": "b"},
+    }).json()
+    return basic, cloned, note
+
+
+def test_change_identical_moves_explicit_notes_without_changing_cards_or_history(api):
+    basic, imported, note = _note_on_cloned_basic(api)
+    card = note["card_ids"][0]
+    api.post("/review/grade-now", json={"card_ids": [card], "rating": "good"})
+    before_card = api.get(f"/cards/{card}").json()
+    before_revlog = api.get("/revlog", params={"card_ids": card}).json()["entries"]
+
+    out = api.post("/notetypes/actions/change-identical", json={
+        "note_ids": [note["id"]],
+        "expected_source_notetype_id": imported,
+        "target_notetype_id": basic,
+    })
+    assert out.status_code == 200, out.text
+    assert out.json()["count"] == 1
+    assert api.get(f"/notes/{note['id']}").json()["notetype"] == "Basic"
+    assert api.get(f"/cards/{card}").json() == before_card
+    assert api.get("/revlog", params={"card_ids": card}).json()["entries"] == before_revlog
+
+
+def test_change_identical_refuses_mixed_source_notetypes_atomically(api):
+    basic, imported, source_note = _note_on_cloned_basic(api)
+    other = api.make_note(deck="D", front="other")
+    out = api.post("/notetypes/actions/change-identical", json={
+        "note_ids": [source_note["id"], other["id"]],
+        "expected_source_notetype_id": imported,
+        "target_notetype_id": basic,
+    })
+    assert out.status_code == 409
+    assert api.get(f"/notes/{source_note['id']}").json()["notetype"] == "ImportedBasic"
+
+
+def test_change_identical_refuses_a_schema_difference(api):
+    basic, imported, note = _note_on_cloned_basic(api)
+    api.patch(f"/notetypes/{imported}", json={"css": ".card { color: red; }"})
+    out = api.post("/notetypes/actions/change-identical", json={
+        "note_ids": [note["id"]],
+        "expected_source_notetype_id": imported,
+        "target_notetype_id": basic,
+    })
+    assert out.status_code == 409
+    assert api.get(f"/notes/{note['id']}").json()["notetype"] == "ImportedBasic"
