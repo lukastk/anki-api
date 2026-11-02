@@ -305,3 +305,138 @@ def test_change_identical_refuses_a_schema_difference(api):
     })
     assert out.status_code == 409
     assert api.get(f"/notes/{note['id']}").json()["notetype"] == "ImportedBasic"
+
+
+# --- change-mapped: a field-mapping change that keeps cards and history, all-or-nothing ---
+
+def _rsh_like(api):
+    """A source notetype (cloned Basic with an extra field) and a target with two more fields."""
+    basic = _id_by_name(api, "Basic")
+    source = api.post(f"/notetypes/{basic}/clone", json={"name": "Src"}).json()["id"]
+    assert api.post(f"/notetypes/{source}/fields", json={"name": "Story"}).status_code == 200
+    target = api.post(f"/notetypes/{source}/clone", json={"name": "Dst"}).json()["id"]
+    for name in ("Key", "Atoms"):
+        assert api.post(f"/notetypes/{target}/fields", json={"name": name}).status_code == 200
+    note = api.post("/notes", json={
+        "deck": "D", "notetype": "Src", "fields": {"Front": "横", "Back": "horizontal", "Story": "tree and yellow"},
+    }).json()
+    return source, target, note
+
+
+def _mapped_body(note_ids, source, target, **over):
+    body = {
+        "note_ids": note_ids, "expected_source_notetype_id": source, "target_notetype_id": target,
+        "field_map": {"Front": "Front", "Back": "Back", "Story": "Story", "Key": None, "Atoms": None},
+        "discard_fields": [], "template_map": {"Card 1": "Card 1"},
+    }
+    body.update(over)
+    return body
+
+
+def test_change_mapped_moves_notes_by_name_keeping_cards_history_and_scheduling(api):
+    source, target, note = _rsh_like(api)
+    card = note["card_ids"][0]
+    api.post("/review/grade-now", json={"card_ids": [card], "rating": "good"})
+    before_card = api.get(f"/cards/{card}").json()
+    before_revlog = api.get("/revlog", params={"card_ids": card}).json()["entries"]
+
+    scm_before = api.get("/sync/health").json()["schema_modified"]
+    out = api.post("/notetypes/actions/change-mapped", json=_mapped_body([note["id"]], source, target))
+    assert out.status_code == 200, out.text
+    health = api.get("/sync/health").json()
+    assert out.json()["count"] == 1
+    # The report is read from the collection; it agrees with what /sync/health reads independently.
+    assert health["schema_modified"] != scm_before
+    assert out.json()["schema_modified"] is True
+    assert out.json()["full_sync_required"] is health["schema_changed"] is True
+    after = api.get(f"/notes/{note['id']}").json()
+    assert after["notetype"] == "Dst"
+    assert after["fields"] == {"Front": "横", "Back": "horizontal", "Story": "tree and yellow", "Key": "", "Atoms": ""}
+    assert after["card_ids"] == [card]
+    after_card = api.get(f"/cards/{card}").json()
+    assert {k: v for k, v in after_card.items() if k not in ("notetype", "mtime", "usn")} == \
+        {k: v for k, v in before_card.items() if k not in ("notetype", "mtime", "usn")}
+    assert api.get("/revlog", params={"card_ids": card}).json()["entries"] == before_revlog
+
+
+def test_change_mapped_follows_the_name_map_not_field_order(api):
+    source, target, note = _rsh_like(api)
+    body = _mapped_body([note["id"]], source, target,
+                        field_map={"Front": "Back", "Back": "Front", "Story": None, "Key": "Story", "Atoms": None})
+    assert api.post("/notetypes/actions/change-mapped", json=body).status_code == 200
+    assert api.get(f"/notes/{note['id']}").json()["fields"] == {
+        "Front": "horizontal", "Back": "横", "Story": "", "Key": "tree and yellow", "Atoms": ""}
+
+
+def test_change_mapped_refuses_a_note_of_another_notetype_and_moves_nothing(api):
+    source, target, note = _rsh_like(api)
+    other = api.make_note(deck="D", front="other")
+    out = api.post("/notetypes/actions/change-mapped", json=_mapped_body([note["id"], other["id"]], source, target))
+    assert out.status_code == 409
+    assert "expected source" in out.text
+    assert api.get(f"/notes/{note['id']}").json()["notetype"] == "Src"
+
+
+def test_change_mapped_refuses_a_target_field_the_map_does_not_name(api):
+    source, target, note = _rsh_like(api)
+    body = _mapped_body([note["id"]], source, target,
+                        field_map={"Front": "Front", "Back": "Back", "Story": "Story", "Key": None})
+    out = api.post("/notetypes/actions/change-mapped", json=body)
+    assert out.status_code == 422
+    assert "Atoms" in out.text
+    assert api.get(f"/notes/{note['id']}").json()["notetype"] == "Src"
+
+
+def test_change_mapped_refuses_a_source_field_neither_mapped_nor_discarded(api):
+    source, target, note = _rsh_like(api)
+    body = _mapped_body([note["id"]], source, target,
+                        field_map={"Front": "Front", "Back": "Back", "Story": None, "Key": None, "Atoms": None})
+    out = api.post("/notetypes/actions/change-mapped", json=body)
+    assert out.status_code == 422
+    assert "Story" in out.text
+    body["discard_fields"] = ["Story"]
+    assert api.post("/notetypes/actions/change-mapped", json=body).status_code == 200
+
+
+def test_change_mapped_refuses_a_discarded_field_that_is_also_mapped(api):
+    source, target, note = _rsh_like(api)
+    out = api.post("/notetypes/actions/change-mapped",
+                   json=_mapped_body([note["id"]], source, target, discard_fields=["Story"]))
+    assert out.status_code == 422
+
+
+def test_change_mapped_refuses_an_unknown_source_field_and_a_field_used_twice(api):
+    source, target, note = _rsh_like(api)
+    unknown = _mapped_body([note["id"]], source, target,
+                           field_map={"Front": "Front", "Back": "Back", "Story": "Story", "Key": "Nope", "Atoms": None})
+    assert api.post("/notetypes/actions/change-mapped", json=unknown).status_code == 422
+    twice = _mapped_body([note["id"]], source, target,
+                         field_map={"Front": "Front", "Back": "Back", "Story": "Story", "Key": "Front", "Atoms": None})
+    out = api.post("/notetypes/actions/change-mapped", json=twice)
+    assert out.status_code == 422
+    assert "Front" in out.text
+    assert api.get(f"/notes/{note['id']}").json()["notetype"] == "Src"
+
+
+def test_change_mapped_refuses_a_template_map_that_would_delete_or_create_cards(api):
+    source, target, note = _rsh_like(api)
+    assert api.post(f"/notetypes/{target}/templates",
+                    json={"name": "Card 2", "qfmt": "{{Back}}", "afmt": "{{Front}}"}).status_code == 200
+    # the target's second template is not mapped: Anki would generate cards for it
+    out = api.post("/notetypes/actions/change-mapped", json=_mapped_body([note["id"]], source, target))
+    assert out.status_code == 422
+    assert "Card 2" in out.text
+    # every target template mapped, but from one source template twice
+    out = api.post("/notetypes/actions/change-mapped", json=_mapped_body(
+        [note["id"]], source, target, template_map={"Card 1": "Card 1", "Card 2": "Card 1"}))
+    assert out.status_code == 422
+    assert api.get(f"/notes/{note['id']}").json()["notetype"] == "Src"
+
+
+def test_change_mapped_refuses_empty_or_duplicate_notes_and_one_notetype_for_both(api):
+    source, target, note = _rsh_like(api)
+    assert api.post("/notetypes/actions/change-mapped", json=_mapped_body([], source, target)).status_code == 422
+    assert api.post("/notetypes/actions/change-mapped",
+                    json=_mapped_body([note["id"], note["id"]], source, target)).status_code == 422
+    assert api.post("/notetypes/actions/change-mapped",
+                    json=_mapped_body([note["id"]], source, source)).status_code == 422

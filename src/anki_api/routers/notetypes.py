@@ -87,6 +87,24 @@ class ChangeIdenticalNotetype(RequestModel):
     target_notetype_id: str
 
 
+class ChangeMappedNotetype(RequestModel):
+    note_ids: list[str]
+    expected_source_notetype_id: str
+    target_notetype_id: str
+    # Every TARGET field, by name -> the SOURCE field that fills it, or null to start it empty.
+    field_map: dict[str, str | None]
+    # Source fields whose content is deliberately dropped; every source field is mapped or listed here.
+    discard_fields: list[str]
+    # Every TARGET template, by name -> the SOURCE template whose cards it keeps; one-to-one over both sides,
+    # so the change neither deletes a card nor generates one.
+    template_map: dict[str, str]
+
+
+class ChangeMappedResult(Mutation):
+    schema_modified: bool  # the collection's scm moved during the change
+    full_sync_required: bool  # scm > ls afterwards: the next sync must be a full one
+
+
 # --- helpers ---
 
 def _get(col, nid: int) -> dict:
@@ -346,6 +364,90 @@ def change_identical_notetype(
         req.new_fields[:] = range(len(new_view["fields"]))
         req.new_templates[:] = range(len(new_view["templates"]))
         return mutation(col.models.change_notetype_of_notes(req), count=len(note_ids))
+
+
+@router.post("/actions/change-mapped")
+def change_mapped_notetype(
+    body: ChangeMappedNotetype, handle: CollectionHandle = Depends(get_handle),
+) -> ChangeMappedResult:
+    """Move explicitly named notes to a notetype with a different schema, by explicit name maps.
+
+    Every target field is named (filled from one source field, or empty); every source field is mapped or
+    listed in `discard_fields`; templates map one-to-one, so card ids, scheduling and revlog are kept and no
+    card is deleted or generated. Every note must be on the expected source. All checks run before Anki's
+    native change, which is a single operation. A notetype change modifies the schema: the result reports
+    `schema_modified` and `full_sync_required` as read from the collection before and after.
+    """
+    note_ids = parse_ids(body.note_ids)
+    if not note_ids:
+        raise HTTPException(status_code=422, detail="note_ids must not be empty")
+    if len(note_ids) != len(set(note_ids)):
+        raise HTTPException(status_code=422, detail="note_ids contains duplicates")
+    old_id = parse_id(body.expected_source_notetype_id)
+    new_id = parse_id(body.target_notetype_id)
+    if old_id == new_id:
+        raise HTTPException(status_code=422, detail="source and target notetype must differ")
+    with handle.locked() as col:
+        old, new = _get(col, old_id), _get(col, new_id)
+        if old["type"] != new["type"]:
+            raise HTTPException(status_code=422, detail="source and target differ in type (standard/cloze)")
+        old_fields = [f["name"] for f in old["flds"]]
+        new_fields = [f["name"] for f in new["flds"]]
+        old_tmpls = [t["name"] for t in old["tmpls"]]
+        new_tmpls = [t["name"] for t in new["tmpls"]]
+
+        if set(body.field_map) != set(new_fields):
+            raise HTTPException(status_code=422, detail=(
+                f"field_map must name every target field exactly: missing {sorted(set(new_fields) - set(body.field_map))}, "
+                f"not on the target {sorted(set(body.field_map) - set(new_fields))}"))
+        sources = [s for s in body.field_map.values() if s is not None]
+        unknown = sorted(set(sources) - set(old_fields))
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"field_map names source fields the source lacks: {unknown}")
+        twice = sorted({s for s in sources if sources.count(s) > 1})
+        if twice:
+            raise HTTPException(status_code=422, detail=f"source fields mapped more than once: {twice}")
+        discard = list(body.discard_fields)
+        if len(discard) != len(set(discard)) or set(discard) - set(old_fields):
+            raise HTTPException(status_code=422, detail=f"discard_fields must be distinct source fields: {discard}")
+        both = sorted(set(discard) & set(sources))
+        if both:
+            raise HTTPException(status_code=422, detail=f"fields both mapped and discarded: {both}")
+        unaccounted = [f for f in old_fields if f not in sources and f not in discard]
+        if unaccounted:
+            raise HTTPException(status_code=422, detail=(
+                f"source fields neither mapped nor discarded: {unaccounted}"))
+
+        if set(body.template_map) != set(new_tmpls) or sorted(body.template_map.values()) != sorted(old_tmpls):
+            raise HTTPException(status_code=422, detail=(
+                f"template_map must map every target template {new_tmpls} from a distinct source template "
+                f"{old_tmpls}, one-to-one; got {body.template_map}"))
+
+        rows = dict(col.db.all(f"select id, mid from notes where id in {ids2str(note_ids)}"))
+        missing = next((nid for nid in note_ids if nid not in rows), None)
+        if missing is not None:
+            raise HTTPException(status_code=404, detail=f"note {missing} not found")
+        wrong = next((nid for nid in note_ids if rows[nid] != old_id), None)
+        if wrong is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"note {wrong} has notetype {rows[wrong]}, expected source {old_id}",
+            )
+
+        info = col.models.change_notetype_info(old_notetype_id=old_id, new_notetype_id=new_id)
+        req = info.input
+        req.note_ids[:] = note_ids
+        req.new_fields[:] = [
+            -1 if body.field_map[name] is None else old_fields.index(body.field_map[name]) for name in new_fields
+        ]
+        req.new_templates[:] = [old_tmpls.index(body.template_map[name]) for name in new_tmpls]
+        scm_before = col.db.scalar("select scm from col")
+        changes = col.models.change_notetype_of_notes(req)
+        scm_after = col.db.scalar("select scm from col")
+        ls = col.db.scalar("select ls from col")
+        result = mutation(changes, count=len(note_ids))
+        return ChangeMappedResult(**result.model_dump(), schema_modified=scm_after != scm_before,
+                                  full_sync_required=scm_after > ls)
 
 
 @router.post("/change-info")

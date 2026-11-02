@@ -125,6 +125,7 @@ the stored shape and answer 422 the same way.
 | `POST` | `/v1/notetypes/change` |  |
 | `POST` | `/v1/notetypes/change-info` |  |
 | `POST` | `/v1/notetypes/actions/change-identical` | Atomically move explicitly named notes from an expected source notetype to a target only when every note is currently on that source and ordered fields, templates, CSS, type and sort field are identical. Uses Anki's native change-notetype operation with identity maps. |
+| `POST` | `/v1/notetypes/actions/change-mapped` | Move explicitly named notes from an expected source notetype to a target with a different schema. `field_map` names every target field (filled from one source field, or `null` for empty); every source field is mapped or listed in `discard_fields`; `template_map` is one-to-one, so no card is deleted or generated, and card ids, scheduling and revlog are kept. Every check runs before Anki's native change-notetype operation. Reports `schema_modified` and `full_sync_required`, both read from the collection. |
 | `GET` | `/v1/notetypes/stock` |  |
 | `DELETE` | `/v1/notetypes/{notetype_id}` | Delete the notetype. 404 if there is no such notetype. |
 | `GET` | `/v1/notetypes/{notetype_id}` |  |
