@@ -85,6 +85,101 @@ def test_create_unknown_stock_is_400(api):
     assert api.post("/notetypes", json={"name": "X", "stock": "Nope"}).status_code == 400
 
 
+# --- templates at creation ---
+#
+# Adding a template to an EXISTING notetype modifies the schema and forces a full sync, while
+# creating a notetype does not. So a notetype that needs more than one card template has to be
+# born with them, the same reason `fields` is accepted at creation.
+
+_SLOW_FIELDS = ["Slow08", "Slow05"]
+_AFMT = "{{FrontSide}}<hr id=answer>{{Back}}"
+_LISTENING_TEMPLATES = [
+    {"name": "1.0x", "qfmt": "{{Front}}", "afmt": _AFMT},
+    {"name": "0.8x", "qfmt": "{{#Slow08}}{{Slow08}}{{/Slow08}}", "afmt": _AFMT},
+    {"name": "0.5x", "qfmt": "{{#Slow05}}{{Slow05}}{{/Slow05}}", "afmt": _AFMT},
+]
+
+
+def _listening(name):
+    return {"name": name, "fields": _SLOW_FIELDS, "templates": _LISTENING_TEMPLATES}
+
+
+def test_create_with_templates_are_the_notetypes_own_templates_in_order(api):
+    """Templates given at creation ARE the notetype's templates, replacing the stock one.
+
+    The caller owns the ordinals: a listening notetype's full-speed card has to be ord 0, and
+    appending to the stock template would leave "Card 1" at ord 0 generating a card nobody
+    asked for.
+    """
+    out = api.post("/notetypes", json=_listening("ThreeCard"))
+    assert out.status_code == 200, out.text
+    nt = api.get(f"/notetypes/{out.json()['id']}").json()
+    assert [t["name"] for t in nt["templates"]] == ["1.0x", "0.8x", "0.5x"]
+    assert [f["name"] for f in nt["fields"]] == ["Front", "Back", "Slow08", "Slow05"]
+    assert nt["templates"][0]["qfmt"] == "{{Front}}"
+
+
+def test_create_with_templates_does_not_modify_the_schema(api):
+    """The whole reason the parameter exists."""
+    scm_before = api.get("/sync/health").json()["schema_modified"]
+    assert api.post("/notetypes", json=_listening("ThreeCardScm")).status_code == 200
+    assert api.get("/sync/health").json()["schema_modified"] == scm_before
+
+
+def test_a_conditional_template_generates_its_card_only_once_its_field_is_filled(api):
+    """A free creation whose later field write cost a full sync would be no gain, so the write
+    that generates the siblings is measured too."""
+    api.post("/notetypes", json=_listening("ThreeCardGen"))
+    note = api.post("/notes", json={
+        "deck": "D", "notetype": "ThreeCardGen",
+        "fields": {"Front": "f", "Back": "b", "Slow08": "", "Slow05": ""},
+    }).json()
+    assert len(note["card_ids"]) == 1
+
+    scm_before = api.get("/sync/health").json()["schema_modified"]
+    api.put(f"/notes/{note['id']}", json={"fields": {
+        "Front": "f", "Back": "b", "Slow08": "[sound:slow08.mp3]", "Slow05": "[sound:slow05.mp3]",
+    }})
+    after = api.get(f"/notes/{note['id']}").json()
+    assert len(after["card_ids"]) == 3
+    assert api.get("/sync/health").json()["schema_modified"] == scm_before
+    for card_id in after["card_ids"]:
+        card = api.get(f"/cards/{card_id}").json()
+        assert card["type"] == 0 and card["queue"] == 0
+
+
+def test_create_with_an_empty_templates_list_is_422(api):
+    """`templates` absent means "the stock notetype's own"; `templates: []` would mean a
+    notetype with no card template at all, which is not a thing."""
+    body = {"name": "NoTmpl", "templates": []}
+    assert api.post("/notetypes", json=body).status_code == 422
+
+
+def test_create_with_a_duplicate_template_name_is_422(api):
+    body = {"name": "DupTmpl", "templates": [
+        {"name": "same", "qfmt": "{{Front}}", "afmt": _AFMT},
+        {"name": "same", "qfmt": "{{Back}}", "afmt": _AFMT},
+    ]}
+    assert api.post("/notetypes", json=body).status_code == 422
+
+
+def test_create_a_cloze_with_several_templates_is_422(api):
+    """A cloze notetype has exactly one template, whatever the caller asks for.
+
+    The detail is asserted, not just the status: anki refuses this by itself further down, so a
+    test that only checked for 422 passed with this guard disabled and proved nothing about it.
+    """
+    # The two fronts differ: anki refuses two templates with IDENTICAL fronts whatever the
+    # notetype, which is what this test was accidentally proving before.
+    body = {"name": "ClozeMany", "stock": "Cloze", "templates": [
+        {"name": "a", "qfmt": "{{cloze:Text}}", "afmt": "{{cloze:Text}}"},
+        {"name": "b", "qfmt": "second: {{cloze:Text}}", "afmt": "{{cloze:Text}}"},
+    ]}
+    out = api.post("/notetypes", json=body)
+    assert out.status_code == 422, out.text
+    assert "exactly one card template" in out.text, out.text
+
+
 def test_clone(api):
     src = _id_by_name(api, "Basic")
     out = api.post(f"/notetypes/{src}/clone", json={"name": "BasicCopy"}).json()

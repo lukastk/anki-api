@@ -25,6 +25,12 @@ router = APIRouter(prefix="/notetypes", tags=["notetypes"])
 
 # --- request models ---
 
+class NewTemplate(RequestModel):
+    name: str
+    qfmt: str
+    afmt: str
+
+
 class CreateNotetype(RequestModel):
     name: str
     stock: str = "Basic"
@@ -33,6 +39,13 @@ class CreateNotetype(RequestModel):
     # the schema (forces a full sync) — so callers that want extra fields should
     # pass them here and get a fully-formed notetype in one schema-neutral op.
     fields: list[str] = []
+    # Card templates to include AT creation, for the same reason and with the same
+    # payoff: add_template on an existing notetype modifies the schema, creation does
+    # not, so a notetype that needs several card templates has to be born with them.
+    # These REPLACE the stock notetype's own template, in the order given, so the
+    # caller owns the ordinals (templates[0] is ord 0). Omit the key to keep the
+    # stock's; an empty list is refused rather than read as "no cards at all".
+    templates: list[NewTemplate] | None = None
 
 
 class CloneNotetype(RequestModel):
@@ -186,10 +199,33 @@ def create_notetype(body: CreateNotetype, handle: CollectionHandle = Depends(get
             raise HTTPException(status_code=400, detail=f"unknown stock notetype {body.stock!r}")
         nt = stocks[body.stock](col)
         nt["name"] = body.name
-        # Extra fields are added to the in-memory dict BEFORE add_dict, so the whole
-        # creation is one incremental (non-schema-modifying) operation.
+        # Checked before anything is applied, as in patch_notetype: a request that half-built
+        # a notetype and then raised would leave the caller guessing which half landed.
+        if body.templates is not None:
+            names = [t.name for t in body.templates]
+            if not names:
+                raise HTTPException(
+                    status_code=422,
+                    detail="templates must not be empty: a notetype has at least one card template",
+                )
+            if len(set(names)) != len(names):
+                raise HTTPException(status_code=422, detail=f"duplicate template name in {names}")
+            if nt["type"] == MODEL_CLOZE and len(names) > 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"a cloze notetype has exactly one card template, asked for {len(names)}",
+                )
+        # Extra fields and templates are added to the in-memory dict BEFORE add_dict, so the
+        # whole creation is one incremental (non-schema-modifying) operation.
         for field_name in body.fields:
             col.models.add_field(nt, col.models.new_field(field_name))
+        if body.templates is not None:
+            nt["tmpls"] = []
+            for spec in body.templates:
+                tmpl = col.models.new_template(spec.name)
+                tmpl["qfmt"] = spec.qfmt
+                tmpl["afmt"] = spec.afmt
+                col.models.add_template(nt, tmpl)
         out = col.models.add_dict(nt)
         return mutation(out.changes, id=out.id)
 
