@@ -50,12 +50,50 @@ def test_update_partial_merges(api):
 
 def test_delete_preset(api):
     pid = api.post("/deck-presets", json={"name": "Doomed"}).json()["id"]
-    assert api.delete(f"/deck-presets/{pid}").status_code == 200
+    # The delete modifies the collection's schema, so it is acknowledged (see the three tests below).
+    assert api.delete(f"/deck-presets/{pid}?accept_schema_change=true").status_code == 200
     assert api.get(f"/deck-presets/{pid}").status_code == 404
 
 
-def test_delete_default_is_422(api):
+def test_delete_preset_refuses_until_the_schema_change_is_accepted(api):
+    """Anki's `remove_config` calls `mod_schema`, so removing a preset makes the NEXT SYNC a one-way full
+    sync. A caller that has not said it wants that is refused, and the preset is still there afterwards.
+
+    Written after three unused presets were deleted on a synced collection on 2026-10-30 and the sync
+    answered `full_sync`: the hazard is recognised before the write, not read off the sync's answer.
+    """
+    pid = api.post("/deck-presets", json={"name": "Doomed"}).json()["id"]
+    refused = api.delete(f"/deck-presets/{pid}")
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert "schema" in detail and "full sync" in detail and "accept_schema_change=true" in detail
+    assert api.get(f"/deck-presets/{pid}").status_code == 200, "the refusal wrote nothing"
+
+
+def test_delete_preset_reports_the_schema_change_it_made(api):
+    """And the schema really does move, which is what makes the guard a fact rather than a precaution: the
+    `scm` the collection carries is higher afterwards, and the response says so in the words /sync/health
+    uses."""
+    pid = api.post("/deck-presets", json={"name": "Doomed"}).json()["id"]
+    before = int(api.get("/sync/health").json()["schema_modified"])
+    body = api.delete(f"/deck-presets/{pid}?accept_schema_change=true").json()
+    after = int(api.get("/sync/health").json()["schema_modified"])
+    assert after > before, "removing a preset is supposed to modify the schema"
+    assert body == {"ok": True, "schema_changed": True, "schema_modified": str(after)}
+
+
+def test_delete_default_is_422_whether_or_not_the_schema_change_is_accepted(api):
+    """The default preset can never be removed, so that refusal comes first and says the thing that is
+    always true, rather than inviting a caller to accept a schema change that would not help."""
     assert api.delete("/deck-presets/1").status_code == 422
+    assert api.delete("/deck-presets/1?accept_schema_change=true").status_code == 422
+
+
+def test_delete_a_preset_that_is_not_there_is_404_before_any_schema_change(api):
+    """A 404 is not a reason to touch the schema: the preset is looked up first."""
+    before = int(api.get("/sync/health").json()["schema_modified"])
+    assert api.delete("/deck-presets/987654321?accept_schema_change=true").status_code == 404
+    assert int(api.get("/sync/health").json()["schema_modified"]) == before
 
 
 def test_restore_defaults(api):
