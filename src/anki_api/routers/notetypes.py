@@ -39,6 +39,12 @@ class CreateNotetype(RequestModel):
     # the schema (forces a full sync) — so callers that want extra fields should
     # pass them here and get a fully-formed notetype in one schema-neutral op.
     fields: list[str] = []
+    # Optional exact final order, including the stock fields. This is applied to the
+    # in-memory notetype before its one add_dict(), so an editor-first field does not
+    # cost a later schema-changing reposition.
+    field_order: list[str] | None = None
+    # Name, not index: the caller's order above decides the final index.
+    sort_field: str | None = None
     # Card templates to include AT creation, for the same reason and with the same
     # payoff: add_template on an existing notetype modifies the schema, creation does
     # not, so a notetype that needs several card templates has to be born with them.
@@ -219,6 +225,25 @@ def create_notetype(body: CreateNotetype, handle: CollectionHandle = Depends(get
         # whole creation is one incremental (non-schema-modifying) operation.
         for field_name in body.fields:
             col.models.add_field(nt, col.models.new_field(field_name))
+        field_names = [field["name"] for field in nt["flds"]]
+        if body.field_order is not None:
+            if len(body.field_order) != len(field_names) or set(body.field_order) != set(field_names):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"field_order must contain exactly {field_names}, got {body.field_order}",
+                )
+            by_name = {field["name"]: field for field in nt["flds"]}
+            nt["flds"] = [by_name[name] for name in body.field_order]
+            for index, field in enumerate(nt["flds"]):
+                field["ord"] = index
+            field_names = list(body.field_order)
+        if body.sort_field is not None:
+            if body.sort_field not in field_names:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"sort_field {body.sort_field!r} is not one of {field_names}",
+                )
+            nt["sortf"] = field_names.index(body.sort_field)
         if body.templates is not None:
             nt["tmpls"] = []
             for spec in body.templates:

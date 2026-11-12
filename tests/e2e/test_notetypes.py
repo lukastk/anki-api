@@ -119,6 +119,42 @@ def test_create_with_templates_are_the_notetypes_own_templates_in_order(api):
     assert nt["templates"][0]["qfmt"] == "{{Front}}"
 
 
+def test_create_with_exact_field_order_sort_field_and_empty_first_field(api):
+    """A notetype can be born editor-ready without a schema-changing reposition afterwards."""
+    scm_before = api.get("/sync/health").json()["schema_modified"]
+    out = api.post("/notetypes", json={
+        "name": "StoryFirst",
+        "fields": ["My story", "Glyph"],
+        "field_order": ["My story", "Front", "Back", "Glyph"],
+        "sort_field": "Glyph",
+        "templates": [{"name": "Card", "qfmt": "{{Glyph}}", "afmt": _AFMT}],
+    })
+    assert out.status_code == 200, out.text
+    nt = api.get(f"/notetypes/{out.json()['id']}").json()
+    assert [field["name"] for field in nt["fields"]] == ["My story", "Front", "Back", "Glyph"]
+    assert nt["sort_field_index"] == 3
+    assert api.get("/sync/health").json()["schema_modified"] == scm_before
+
+    note = api.post("/notes", json={
+        "deck": "D",
+        "notetype": "StoryFirst",
+        "fields": {"My story": "", "Front": "", "Back": "answer", "Glyph": "飲"},
+    })
+    assert note.status_code == 200, note.text
+    assert len(note.json()["card_ids"]) == 1
+
+
+def test_create_field_order_must_name_every_field_exactly_once(api):
+    body = {
+        "name": "BadFieldOrder",
+        "fields": ["My story"],
+        "field_order": ["My story", "Front"],
+    }
+    out = api.post("/notetypes", json=body)
+    assert out.status_code == 422
+    assert "field_order must contain exactly" in out.json()["detail"]
+
+
 def test_create_with_templates_does_not_modify_the_schema(api):
     """The whole reason the parameter exists."""
     scm_before = api.get("/sync/health").json()["schema_modified"]

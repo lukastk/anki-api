@@ -121,7 +121,7 @@ the stored shape and answer 422 the same way.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/v1/notetypes` |  |
-| `POST` | `/v1/notetypes` |  |
+| `POST` | `/v1/notetypes` | Create a notetype in one schema-neutral operation. Extra `fields` and replacement `templates` are applied before creation; optional `field_order` names the exact final order including stock fields, and `sort_field` names the field used for browser sorting. |
 | `POST` | `/v1/notetypes/change` |  |
 | `POST` | `/v1/notetypes/change-info` |  |
 | `POST` | `/v1/notetypes/actions/change-identical` | Atomically move explicitly named notes from an expected source notetype to a target only when every note is currently on that source and ordered fields, templates, CSS, type and sort field are identical. Uses Anki's native change-notetype operation with identity maps. |
