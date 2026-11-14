@@ -35,7 +35,7 @@ the stored shape and answer 422 the same way.
 |---|---|---|
 | `GET` | `/v1/deck-presets` |  |
 | `POST` | `/v1/deck-presets` |  |
-| `DELETE` | `/v1/deck-presets/{preset_id}` |  |
+| `DELETE` | `/v1/deck-presets/{preset_id}` | Remove a preset only from a never-synced collection. Refuses on a synced collection because Anki marks the schema changed and forces a one-way full sync. |
 | `GET` | `/v1/deck-presets/{preset_id}` |  |
 | `PUT` | `/v1/deck-presets/{preset_id}` | Merge a partial config into the preset (deep-merges nested new/rev/lapse). 422 for a key the preset does not have, at any level. |
 | `POST` | `/v1/deck-presets/{preset_id}/restore-defaults` |  |

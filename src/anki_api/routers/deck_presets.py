@@ -91,39 +91,32 @@ def update_preset(preset_id: str, body: dict[str, Any], handle: CollectionHandle
 
 
 @router.delete("/{preset_id}")
-def delete_preset(preset_id: str, accept_schema_change: bool = False,
-                  handle: CollectionHandle = Depends(get_handle)) -> dict:
-    """Remove a preset. This MODIFIES THE SCHEMA, so it is refused until the caller accepts that.
+def delete_preset(preset_id: str, handle: CollectionHandle = Depends(get_handle)) -> dict:
+    """Remove a preset only from a collection that has never been synced.
 
-    Anki's `DeckManager.remove_config` calls `mod_schema`, which stamps the collection's `scm` and makes the
-    NEXT SYNC a one-way full sync. Three unused presets were removed from a synced collection on 2026-10-30
-    and its next sync answered `full_sync`, which cost a full download of the server's side and redoing the
-    work that had been done since: the hazard is recognised here, before the write, rather than read off the
-    sync's answer afterwards.
-
-    `accept_schema_change=true` is the caller saying it has choreographed that full sync. The response then
-    reports the schema state in the words `/sync/health` uses, so the write's own receipt carries it.
-
-    A missing preset is still a 404 and the default preset still a 422: neither is a reason to touch the
-    schema, and the default can never be removed however the call is made.
+    Anki's ``DeckManager.remove_config`` calls ``mod_schema``. Once a collection has
+    a sync history, that turns its next sync into a one-way full sync, so deletion is
+    refused rather than exposing an acknowledgement switch that can recreate the loss.
+    An unused preset is harmless and can remain until a choreographed full-sync sitting.
     """
     pid = parse_id(preset_id)
     if pid == DEFAULT_PRESET_ID:
         raise HTTPException(status_code=422, detail="the default preset cannot be removed")
     with handle.locked() as col:
-        preset_or_404(col, pid)  # 404 if missing, before anything has touched the schema
-        if not accept_schema_change:
+        preset_or_404(col, pid)  # 404 before the sync-history guard
+        last_sync = col.db.scalar("select ls from col")
+        if last_sync != 0:
             raise HTTPException(
                 status_code=409,
-                detail=(f"removing preset {preset_id} modifies the collection's schema (Anki's "
-                        f"remove_config calls mod_schema), so the next sync will be a one-way full sync. "
-                        f"Pass accept_schema_change=true once that full sync is choreographed, or leave the "
-                        f"preset in place: an unused preset costs nothing."),
+                detail=(
+                    f"refusing to remove preset {preset_id} from a synced collection: Anki's "
+                    "remove_config modifies the schema, so the next sync would require a one-way full sync. "
+                    "Leave the unused preset in place until a choreographed full-sync sitting."
+                ),
             )
         col.decks.remove_config(pid)
         scm = col.db.scalar("select scm from col")
-        ls = col.db.scalar("select ls from col")
-        return {"ok": True, "schema_changed": scm > ls, "schema_modified": str(scm)}
+        return {"ok": True, "schema_changed": True, "schema_modified": str(scm)}
 
 
 @router.post("/{preset_id}/restore-defaults")
