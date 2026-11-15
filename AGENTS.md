@@ -7,8 +7,8 @@ Guidance for working in this repo. See `README.md` for user-facing docs and
 
 A headless REST API (FastAPI) wrapping the `anki` PyPI package's `Collection` —
 the Anki Rust backend via pylib/rsbridge, **no Qt/GUI**. It exposes Anki's full
-feature set over HTTP so a custom UI can use it as a backend. ~130 endpoints
-across 21 domains; full feature parity with Anki.
+feature set over HTTP so a custom UI can use it as a backend. ~140 endpoints
+across 22 router modules; full feature parity with Anki.
 
 ## Commands
 
@@ -24,7 +24,9 @@ BASE=http://127.0.0.1:8799 uv run python tests/smoke.py
 ```
 
 `ANKI_API_COLLECTION` is required (path to a `.anki2`, created if absent).
-Others: `ANKI_API_HOST`, `ANKI_API_PORT`, `ANKI_API_V3_SCHEDULER`, `ANKI_API_LANG`.
+Others: `ANKI_API_HOST`, `ANKI_API_PORT`, `ANKI_API_V3_SCHEDULER`, `ANKI_API_LANG`,
+`ANKI_API_CORS_ORIGINS` (JSON array of exact trusted origins; unset = no CORS; an
+invalid value fails at startup).
 Sync (all optional, see `config.py`): `ANKI_API_SYNC_AUTH_PATH` (persisted auth
 token; defaults next to the collection), `ANKI_API_SYNC_USERNAME`,
 `ANKI_API_SYNC_PASSWORD`, `ANKI_API_SYNC_ENDPOINT` (self-hosted sync server; unset
@@ -34,6 +36,16 @@ for a *required* full sync; `download` auto-adopts the server only when this
 collection has no un-synced schema change, and never auto-uploads; for
 downstream-replica deployments), `ANKI_API_AUTOSYNC_NOTIFY_CMD` (best-effort
 `<cmd> <title> <body>` notifier on auto-resolve / blocked).
+
+## Deployment
+
+`~/mysetup/anki-api` on mymain is the **production** checkout: myrig's `anki_api`
+target runs it under supervisor on `127.0.0.1:8765` (`tailscale serve`d to the
+tailnet) against the real collection at
+`~/.local/share/anki-api/collection.anki2`, which syncs to AnkiWeb. Develop in the
+dev box `~/dev/20260609_o0n4q2__anki-api`. Never point tests at the production
+collection. Restarts and dependency bumps of the deployed service need Lukas's
+approval.
 
 ## Architecture & invariants (do not break these)
 
@@ -55,6 +67,12 @@ downstream-replica deployments), `ANKI_API_AUTOSYNC_NOTIFY_CMD` (best-effort
   `schemas.common.mutation(op_changes_result, id=?, count=?)`. The `changes`
   flags tell a reactive UI what to refresh. For `OpChangesWithCount` pass
   `count=out.count` and use `out.changes`; for `OpChangesWithId` use `out.id`.
+- **Don't force full syncs.** Operations that would mark the schema modified (a
+  one-way full sync) are designed to keep it unchanged (e.g. `POST /v1/notetypes`
+  builds the notetype in one schema-neutral operation), are refused on a synced
+  collection (`DELETE /v1/deck-presets/{id}`), or, where the change is inherent
+  (`notetypes/actions/change-mapped`), report `schema_modified` and
+  `full_sync_required` read from the collection.
 - **Errors are loud.** `errors.py` maps `anki.errors.*` to specific HTTP codes;
   unrecognised backend errors become a 500. NEVER add silent fallbacks that mask
   bugs (e.g. returning a default for a missing id) — raise `HTTPException(404)`.
