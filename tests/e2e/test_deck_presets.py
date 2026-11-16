@@ -81,6 +81,58 @@ def test_schema_change_acknowledgement_cannot_bypass_synced_collection_refusal(a
     assert api.get(f"/deck-presets/{pid}").status_code == 200
 
 
+def test_delete_unused_preset_during_an_existing_full_sync_choreography(api):
+    pid = api.post("/deck-presets", json={"name": "Parked"}).json()["id"]
+    with api._c.app.state.handle.locked() as col:
+        col.db.execute("update col set ls = ?", col.db.scalar("select scm from col"))
+    assert api.get("/sync/health").json()["schema_changed"] is False
+
+    notetype_id = api.get("/notetypes").json()[0]["id"]
+    api.post(f"/notetypes/{notetype_id}/fields", json={"name": "Schema choreography"})
+    assert api.get("/sync/health").json()["schema_changed"] is True
+
+    deleted = api.post(
+        f"/deck-presets/{pid}/delete-unused-for-full-sync",
+        json={"expected_name": "Parked"},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["schema_changed"] is True
+    assert api.get(f"/deck-presets/{pid}").status_code == 404
+
+
+def test_full_sync_preset_delete_refuses_without_every_precondition(api):
+    pid = api.post("/deck-presets", json={"name": "Parked"}).json()["id"]
+    did = api.make_deck("Uses parked")
+    api.post(f"/decks/{did}/preset", json={"preset_id": pid})
+    with api._c.app.state.handle.locked() as col:
+        col.db.execute("update col set ls = ?", col.db.scalar("select scm from col"))
+
+    no_schema_change = api.post(
+        f"/deck-presets/{pid}/delete-unused-for-full-sync",
+        json={"expected_name": "Parked"},
+    )
+    assert no_schema_change.status_code == 409
+    assert "already require a full sync" in no_schema_change.json()["detail"]
+
+    notetype_id = api.get("/notetypes").json()[0]["id"]
+    api.post(f"/notetypes/{notetype_id}/fields", json={"name": "Schema choreography"})
+
+    wrong_name = api.post(
+        f"/deck-presets/{pid}/delete-unused-for-full-sync",
+        json={"expected_name": "Not parked"},
+    )
+    assert wrong_name.status_code == 409
+    assert "expected name" in wrong_name.json()["detail"]
+
+    assigned = api.post(
+        f"/deck-presets/{pid}/delete-unused-for-full-sync",
+        json={"expected_name": "Parked"},
+    )
+    assert assigned.status_code == 409
+    assert "assigned to deck" in assigned.json()["detail"]
+    assert api.get(f"/deck-presets/{pid}").status_code == 200
+
+
 def test_delete_default_is_422(api):
     assert api.delete("/deck-presets/1").status_code == 422
 

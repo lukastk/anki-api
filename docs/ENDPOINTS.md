@@ -7,7 +7,7 @@ key it does not declare (422, `extra_forbidden`, naming the key), at every nesti
 level; the three plain-dict bodies (`PUT /v1/preferences`,
 `PUT /v1/stats/graph-preferences`, `PUT /v1/deck-presets/{id}`) are checked against
 the stored shape and answer 422 the same way.
-**139 endpoints across 22 domains.**
+**140 endpoints across 22 domains.**
 
 
 ## cards
@@ -38,6 +38,7 @@ the stored shape and answer 422 the same way.
 | `DELETE` | `/v1/deck-presets/{preset_id}` | Remove a preset only from a never-synced collection. Refuses on a synced collection because Anki marks the schema changed and forces a one-way full sync. |
 | `GET` | `/v1/deck-presets/{preset_id}` |  |
 | `PUT` | `/v1/deck-presets/{preset_id}` | Merge a partial config into the preset (deep-merges nested new/rev/lapse). 422 for a key the preset does not have, at any level. |
+| `POST` | `/v1/deck-presets/{preset_id}/delete-unused-for-full-sync` | Delete a compare-and-swap-identified, unassigned preset only while the collection already has another unsynced schema change. This separate choreography route cannot bypass the ordinary DELETE guard. |
 | `POST` | `/v1/deck-presets/{preset_id}/restore-defaults` |  |
 
 ## decks

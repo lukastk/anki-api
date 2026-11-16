@@ -27,6 +27,10 @@ class CreatePreset(RequestModel):
     clone_from: str | None = None
 
 
+class DeleteUnusedForFullSync(RequestModel):
+    expected_name: str
+
+
 def preset_or_404(col, pid: int) -> dict:
     # NB: anki's get_config silently returns the Default preset for an unknown id,
     # so we detect "missing" by id mismatch and surface it loudly as a 404.
@@ -117,6 +121,61 @@ def delete_preset(preset_id: str, handle: CollectionHandle = Depends(get_handle)
         col.decks.remove_config(pid)
         scm = col.db.scalar("select scm from col")
         return {"ok": True, "schema_changed": True, "schema_modified": str(scm)}
+
+
+@router.post("/{preset_id}/delete-unused-for-full-sync")
+def delete_unused_for_full_sync(
+    preset_id: str,
+    body: DeleteUnusedForFullSync,
+    handle: CollectionHandle = Depends(get_handle),
+) -> dict:
+    """Delete one verified-unused preset while another write already requires a full sync.
+
+    This is deliberately not an acknowledgement switch on DELETE. It is a separate operation
+    for a recorded full-sync choreography: the preset's identity is compare-and-swap guarded,
+    no deck may use it, and the collection must already carry an unsynced schema change.
+    """
+    pid = parse_id(preset_id)
+    if pid == DEFAULT_PRESET_ID:
+        raise HTTPException(status_code=422, detail="the default preset cannot be removed")
+    if not body.expected_name.strip():
+        raise HTTPException(status_code=422, detail="expected_name must be nonempty")
+    with handle.locked() as col:
+        cfg = preset_or_404(col, pid)
+        if cfg["name"] != body.expected_name:
+            raise HTTPException(
+                status_code=409,
+                detail=f"preset {preset_id} has name {cfg['name']!r}, expected name {body.expected_name!r}",
+            )
+        scm = col.db.scalar("select scm from col")
+        last_sync = col.db.scalar("select ls from col")
+        if scm <= last_sync:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "the collection does not already require a full sync; add the choreographed "
+                    "schema fields before deleting parked presets"
+                ),
+            )
+        assigned = []
+        for row in col.decks.all_names_and_ids(include_filtered=True):
+            deck = col.decks.get_legacy(row.id)
+            if deck is not None and deck.get("conf") == pid:
+                assigned.append(row.name)
+        if assigned:
+            raise HTTPException(
+                status_code=409,
+                detail=f"preset {preset_id} is still assigned to deck(s): {sorted(assigned)}",
+            )
+        col.decks.remove_config(pid)
+        scm_after = col.db.scalar("select scm from col")
+        return {
+            "ok": True,
+            "id": str(pid),
+            "name": body.expected_name,
+            "schema_changed": scm_after > last_sync,
+            "schema_modified": str(scm_after),
+        }
 
 
 @router.post("/{preset_id}/restore-defaults")
