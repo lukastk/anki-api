@@ -14,6 +14,7 @@ from anki import stdmodels
 from anki.consts import MODEL_CLOZE
 from anki.utils import ids2str
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from ..collection_handle import CollectionHandle
 from ..deps import get_handle
@@ -112,16 +113,23 @@ class ChangeMappedNotetype(RequestModel):
     target_notetype_id: str
     # Every TARGET field, by name -> the SOURCE field that fills it, or null to start it empty.
     field_map: dict[str, str | None]
-    # Source fields whose content is deliberately dropped; every source field is mapped or listed here.
+    # A source field with text may be dropped only when named here. Empty unaccounted fields are safe.
     discard_fields: list[str]
-    # Every TARGET template, by name -> the SOURCE template whose cards it keeps; one-to-one over both sides,
-    # so the change neither deletes a card nor generates one.
-    template_map: dict[str, str]
+    # Every TARGET template, by name -> the SOURCE template whose card it keeps, or null for no old card.
+    template_map: dict[str, str | None]
+    # A source template that has a card may be dropped only when named here.
+    discard_templates: list[str] = []
+
+
+class ChangedMappedNote(BaseModel):
+    note_id: str
+    card_ids: list[str]
 
 
 class ChangeMappedResult(Mutation):
     schema_modified: bool  # the collection's scm moved during the change
     full_sync_required: bool  # scm > ls afterwards: the next sync must be a full one
+    notes: list[ChangedMappedNote]  # actual note/card ids read after Anki's native operation
 
 
 # --- helpers ---
@@ -474,15 +482,30 @@ def change_mapped_notetype(
         both = sorted(set(discard) & set(sources))
         if both:
             raise HTTPException(status_code=422, detail=f"fields both mapped and discarded: {both}")
-        unaccounted = [f for f in old_fields if f not in sources and f not in discard]
-        if unaccounted:
-            raise HTTPException(status_code=422, detail=(
-                f"source fields neither mapped nor discarded: {unaccounted}"))
 
-        if set(body.template_map) != set(new_tmpls) or sorted(body.template_map.values()) != sorted(old_tmpls):
+        if set(body.template_map) != set(new_tmpls):
             raise HTTPException(status_code=422, detail=(
-                f"template_map must map every target template {new_tmpls} from a distinct source template "
-                f"{old_tmpls}, one-to-one; got {body.template_map}"))
+                f"template_map must name every target template exactly: missing "
+                f"{sorted(set(new_tmpls) - set(body.template_map))}, not on the target "
+                f"{sorted(set(body.template_map) - set(new_tmpls))}"))
+        template_sources = [s for s in body.template_map.values() if s is not None]
+        unknown_templates = sorted(set(template_sources) - set(old_tmpls))
+        if unknown_templates:
+            raise HTTPException(status_code=422, detail=(
+                f"template_map names source templates the source lacks: {unknown_templates}"))
+        repeated_templates = sorted({s for s in template_sources if template_sources.count(s) > 1})
+        if repeated_templates:
+            raise HTTPException(status_code=422, detail=(
+                f"source templates mapped more than once: {repeated_templates}"))
+        discard_templates = list(body.discard_templates)
+        if (len(discard_templates) != len(set(discard_templates))
+                or set(discard_templates) - set(old_tmpls)):
+            raise HTTPException(status_code=422, detail=(
+                f"discard_templates must be distinct source templates: {discard_templates}"))
+        templates_both = sorted(set(discard_templates) & set(template_sources))
+        if templates_both:
+            raise HTTPException(status_code=422, detail=(
+                f"templates both mapped and discarded: {templates_both}"))
 
         rows = dict(col.db.all(f"select id, mid from notes where id in {ids2str(note_ids)}"))
         missing = next((nid for nid in note_ids if nid not in rows), None)
@@ -495,20 +518,58 @@ def change_mapped_notetype(
                 detail=f"note {wrong} has notetype {rows[wrong]}, expected source {old_id}",
             )
 
+        unaccounted_fields = [field for field in old_fields if field not in sources and field not in discard]
+        for note_id in note_ids:
+            note = col.get_note(note_id)
+            holding_text = [field for field in unaccounted_fields if note[field]]
+            if holding_text:
+                raise HTTPException(status_code=409, detail=(
+                    f"note {note_id} has text in source field(s) {holding_text} that the map drops; "
+                    "name them in discard_fields to authorize losing that text"))
+
+        card_rows = col.db.all(f"select id, nid, ord from cards where nid in {ids2str(note_ids)}")
+        unaccounted_templates = [
+            template for template in old_tmpls
+            if template not in template_sources and template not in discard_templates
+        ]
+        cards_by_unaccounted_template = {
+            template: [str(card_id) for card_id, _note_id, ord_ in card_rows
+                       if ord_ == old_tmpls.index(template)]
+            for template in unaccounted_templates
+        }
+        cards_by_unaccounted_template = {
+            template: card_ids for template, card_ids in cards_by_unaccounted_template.items() if card_ids
+        }
+        if cards_by_unaccounted_template:
+            raise HTTPException(status_code=409, detail=(
+                f"source template(s) have cards that the map drops: {cards_by_unaccounted_template}; "
+                "name them in discard_templates to authorize deleting those cards"))
+
         info = col.models.change_notetype_info(old_notetype_id=old_id, new_notetype_id=new_id)
         req = info.input
         req.note_ids[:] = note_ids
         req.new_fields[:] = [
             -1 if body.field_map[name] is None else old_fields.index(body.field_map[name]) for name in new_fields
         ]
-        req.new_templates[:] = [old_tmpls.index(body.template_map[name]) for name in new_tmpls]
+        req.new_templates[:] = [
+            -1 if body.template_map[name] is None else old_tmpls.index(body.template_map[name]) for name in new_tmpls
+        ]
         scm_before = col.db.scalar("select scm from col")
         changes = col.models.change_notetype_of_notes(req)
         scm_after = col.db.scalar("select scm from col")
         ls = col.db.scalar("select ls from col")
         result = mutation(changes, count=len(note_ids))
+        changed = [
+            ChangedMappedNote(
+                note_id=str(note_id),
+                card_ids=[str(card_id) for card_id in col.db.list(
+                    "select id from cards where nid = ? order by ord, id", note_id
+                )],
+            )
+            for note_id in note_ids
+        ]
         return ChangeMappedResult(**result.model_dump(), schema_modified=scm_after != scm_before,
-                                  full_sync_required=scm_after > ls)
+                                  full_sync_required=scm_after > ls, notes=changed)
 
 
 @router.post("/change-info")
